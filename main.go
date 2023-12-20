@@ -5,22 +5,10 @@ import (
 	"os"
 
 	"github.com/mtyurt/ecstui/spinnertui"
+	listtui "github.com/mtyurt/ecstui/tui/list"
 
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
-
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
-
-type serviceItem struct {
-	title, desc string
-	arn         string
-}
-
-func (i serviceItem) Title() string       { return i.title }
-func (i serviceItem) Description() string { return i.desc }
-func (i serviceItem) FilterValue() string { return i.title }
 
 type sessionState int
 
@@ -31,12 +19,11 @@ const (
 )
 
 type mainModel struct {
-	list             list.Model
-	serviceDetailArn string
-	state            sessionState
-	initialCall      func() tea.Msg
-	err              error
-	spinner          spinnertui.Model
+	list        listtui.Model
+	state       sessionState
+	initialCall func() tea.Msg
+	err         error
+	spinner     spinnertui.Model
 }
 
 func (m mainModel) Init() tea.Cmd {
@@ -46,20 +33,13 @@ func (m mainModel) Init() tea.Cmd {
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if m.list.FilterState() == list.Filtering {
-			break
-		}
 
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
-		} else if msg.Type == tea.KeyEnter {
-			if item, ok := m.list.SelectedItem().(serviceItem); ok {
-				m.serviceDetailArn = item.arn
-			}
 		}
 	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
-		m.list.SetSize(msg.Width-h, msg.Height-v)
+		m.list.SetSize(msg.Width, msg.Height)
+
 	case serviceListMsg:
 		m.list.SetItems(msg)
 		m.state = listView
@@ -69,13 +49,16 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
+	var cmds []tea.Cmd
 	switch m.state {
 	case initialLoad:
 		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
 	case listView:
 		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
 	}
-	return m, cmd
+	return m, tea.Batch(cmds...)
 }
 
 func (m mainModel) View() string {
@@ -83,21 +66,20 @@ func (m mainModel) View() string {
 	case initialLoad:
 		return m.spinner.View()
 	case listView:
-		return docStyle.Render(m.list.View())
+		return m.list.View()
 	default:
 		return "View State Error"
 	}
 }
 
-type serviceListMsg []list.Item
+type serviceListMsg []listtui.ListItem
 
 type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
 
 func newModel(initialCall func() tea.Msg) mainModel {
-	listModel := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	return mainModel{spinner: spinnertui.New(), list: listModel, state: initialLoad, initialCall: initialCall}
+	return mainModel{spinner: spinnertui.New(), list: listtui.New(), state: initialLoad, initialCall: initialCall}
 }
 func main() {
 	awsLayer := NewAWSInteractionLayer()
@@ -106,17 +88,14 @@ func main() {
 		if err != nil {
 			return errMsg{err}
 		}
-		items := make([]list.Item, len(services))
+		items := make([]listtui.ListItem, len(services))
 		for i, service := range services {
-			items[i] = serviceItem(service)
+			items[i] = listtui.NewListItem(service.Service, service.Cluster, service.Arn)
 		}
 		return serviceListMsg(items)
 	}
 
 	m := newModel(initialCall)
-	m.list.Title = "ECS services"
-	m.list.SetFilteringEnabled(true)
-
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

@@ -42,13 +42,19 @@ func (a *AWSInteractionLayer) ListServices(cluster string) ([]*string, error) {
 	return result.ServiceArns, nil
 }
 
-func (a *AWSInteractionLayer) FetchServiceList() ([]serviceItem, error) {
+type ECSService struct {
+	Service string
+	Cluster string
+	Arn     string
+}
+
+func (a *AWSInteractionLayer) FetchServiceList() ([]ECSService, error) {
 	clusters, err := a.ListClusters()
 	if err != nil {
 		return nil, err
 	}
 
-	var itemList []serviceItem
+	var itemList []ECSService
 	for _, cluster := range clusters {
 		services, err := a.ListServices(*cluster)
 		if err != nil {
@@ -56,10 +62,9 @@ func (a *AWSInteractionLayer) FetchServiceList() ([]serviceItem, error) {
 		}
 
 		for _, service := range services {
-			itemList = append(itemList, serviceItem{
-				title: getLastItemAfterSplit(*service, "/"),
-				desc:  "Cluster: " + getLastItemAfterSplit(*cluster, "/"),
-				arn:   *service,
+			itemList = append(itemList, ECSService{
+				Service: getLastItemAfterSplit(*service, "/"),
+				Cluster: getLastItemAfterSplit(*cluster, "/"),
 			})
 		}
 	}
