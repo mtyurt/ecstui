@@ -71,12 +71,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.state {
 	case initialLoad:
-		updateSpinner, spinnerCmd := m.spinner.Update(msg)
-		switch updateSpinner := updateSpinner.(type) {
-		case spinnertui.Model:
-			m.spinner = updateSpinner
-			cmd = spinnerCmd
-		}
+		m.spinner, cmd = m.spinner.Update(msg)
 	case listView:
 		m.list, cmd = m.list.Update(msg)
 	}
