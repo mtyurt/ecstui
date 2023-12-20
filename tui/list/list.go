@@ -7,19 +7,21 @@ import (
 )
 
 type ListItem struct {
-	title, desc string
-	arn         string
+	service, cluster, serviceArn string
 }
 
-func NewListItem(title, desc, arn string) ListItem {
-	return ListItem{title: title, desc: desc, arn: arn}
+func NewListItem(service, cluster, serviceArn string) ListItem {
+	return ListItem{service: service, cluster: cluster, serviceArn: serviceArn}
 }
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
-func (i ListItem) Title() string       { return i.title }
-func (i ListItem) Description() string { return i.desc }
-func (i ListItem) FilterValue() string { return i.title }
+func (i ListItem) Title() string       { return i.service }
+func (i ListItem) Description() string { return i.cluster }
+func (i ListItem) FilterValue() string { return i.service }
+func (i ListItem) Cluster() string     { return i.cluster }
+func (i ListItem) Service() string     { return i.service }
+func (i ListItem) ServiceArn() string  { return i.serviceArn }
 
 type Model struct {
 	list list.Model
@@ -61,4 +63,8 @@ func (m *Model) SetItems(services []ListItem) {
 		items[i] = ListItem(service)
 	}
 	m.list.SetItems(items)
+}
+
+func (m *Model) GetSelectedServiceArn() ListItem {
+	return m.list.SelectedItem().(ListItem)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -75,4 +76,23 @@ func (a *AWSInteractionLayer) FetchServiceList() ([]ECSService, error) {
 func getLastItemAfterSplit(str, separator string) string {
 	split := strings.Split(str, separator)
 	return split[len(split)-1]
+}
+
+func (a *AWSInteractionLayer) FetchServiceStatus(cluster string, serviceArn string) (*ecs.Service, error) {
+	input := &ecs.DescribeServicesInput{
+		Cluster:  aws.String(cluster),
+		Services: []*string{&serviceArn},
+	}
+
+	log.Printf("fetching service status with input %v\n", input)
+	result, err := a.ecs.DescribeServices(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result.Services) == 0 {
+		return nil, nil
+	}
+
+	return result.Services[0], nil
 }
