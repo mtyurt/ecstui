@@ -20,19 +20,36 @@ func (i serviceItem) Title() string       { return i.title }
 func (i serviceItem) Description() string { return i.desc }
 func (i serviceItem) FilterValue() string { return i.title }
 
-type model struct {
-	list list.Model
+type sessionState int
+
+const (
+	listView sessionState = iota
+	detailView
+)
+
+type mainModel struct {
+	list             list.Model
+	serviceDetailArn string
+	state            sessionState
 }
 
-func (m model) Init() tea.Cmd {
+func (m mainModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		} else if msg.Type == tea.KeyEnter {
+			if item, ok := m.list.SelectedItem().(serviceItem); ok {
+				m.serviceDetailArn = item.arn
+			}
 		}
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
@@ -44,7 +61,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
+func (m mainModel) View() string {
 	return docStyle.Render(m.list.View())
 }
 
@@ -60,8 +77,9 @@ func main() {
 	for i, service := range serviceList {
 		items[i] = serviceItem(service)
 	}
-	m := model{list: list.New(items, list.NewDefaultDelegate(), 0, 0)}
+	m := mainModel{list: list.New(items, list.NewDefaultDelegate(), 0, 0), state: listView}
 	m.list.Title = "ECS services"
+	m.list.SetFilteringEnabled(true)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
