@@ -37,15 +37,16 @@ func (m mainModel) Init() tea.Cmd {
 }
 
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// log.Printf("update State: %d \n", m.state)
 	var cmds []tea.Cmd
 	newServiceDetail := false
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		log.Printf("keymsg: %v\n", msg)
 		if m.state == fatalError {
 			return m, tea.Quit
 		}
-		if msg.String() == "ctrl+c" {
+		k := msg.String()
+		if k == "ctrl+c" {
 			return m, tea.Quit
 		} else if msg.Type == tea.KeyEnter && m.state == listView {
 			selectedService := m.list.GetSelectedServiceArn()
@@ -57,6 +58,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.serviceDetail = &serviceDetail
 			cmds = append(cmds, m.serviceDetail.Init())
 			newServiceDetail = true
+		} else if m.state == detailView && (k == "esc" || k == "backspace") {
+			m.state = listView
+			m.serviceDetail = nil
 		}
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height)

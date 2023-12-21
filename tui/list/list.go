@@ -1,6 +1,7 @@
 package list
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +32,9 @@ func New() Model {
 	list := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	list.Title = "ECS Services"
 	list.SetFilteringEnabled(true)
+	list.KeyMap.Quit = key.NewBinding(
+		key.WithKeys("q"),
+		key.WithHelp("q", "quit"))
 	return Model{list}
 }
 func (m Model) Init() tea.Cmd {
