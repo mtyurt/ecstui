@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/table"
 	"github.com/mtyurt/ecstui/spinnertui"
 )
 
@@ -21,12 +20,34 @@ const (
 )
 
 var (
-	styles = list.DefaultStyles()
+	styles            = list.DefaultStyles()
+	smallSectionStyle = lipgloss.NewStyle().
+				Width(20).
+				Height(6).
+				Margin(1, 1).
+				Align(lipgloss.Center, lipgloss.Center).
+				BorderStyle(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("69"))
+	largeSectionStyle = lipgloss.NewStyle().
+				Width(80).
+				Height(10).
+				Margin(1, 1).
+				Align(lipgloss.Center, lipgloss.Center).
+				BorderStyle(lipgloss.NormalBorder()).
+				BorderForeground(lipgloss.Color("69"))
+)
+
+type sectionSize int
+
+const (
+	smallSection = iota
+	largeSection
 )
 
 type section struct {
 	content string
 	title   string
+	size    sectionSize
 }
 
 type Model struct {
@@ -75,7 +96,7 @@ func (m *Model) initializeSections() {
 	m.sections = []section{
 		{title: "task count", content: fmt.Sprintf("%d", *m.ecsStatus.RunningCount)},
 		{title: "status", content: *m.ecsStatus.Status},
-		{title: "events", content: events},
+		{title: "events", content: events, size: largeSection},
 	}
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -105,34 +126,28 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func renderSection(title, content string) string {
-	return styles.Title.Render(title) + "\n\n" + content + "\n"
-}
-func (m Model) gridView() string {
+func (m Model) renderSection(index int) string {
+	style := smallSectionStyle
+	if m.sections[index].size == largeSection {
+		style = largeSectionStyle
+	}
 
+	return style.Render(styles.Title.Render(m.sections[index].title) + "\n\n" + m.sections[index].content + "\n")
 }
 func (m Model) sectionsView() string {
-	rows := [][]string{}
+	rows := []string{}
 	i := 0
 	for i < len(m.sections)/2 {
-		// section1 :=
-		// 	lipgloss.JoinHorizontal(lipgloss.Left)
-		rows = append(rows, []string{renderSection(m.sections[i].title, m.sections[i].content)})
-		rows = append(rows, []string{renderSection(m.sections[i+1].title, m.sections[i+1].content)})
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i), m.renderSection(i+1)))
 		i += 2
 	}
 	if i < len(m.sections) {
-		rows = append(rows, []string{renderSection(m.sections[i].title, m.sections[i].content)})
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i)))
 	}
 	log.Println("rows")
 	log.Println(rows)
 
-	log.Println("sections")
-	log.Println(m.sections)
-	table := table.New().BorderRow(true).BorderColumn(true).Border(lipgloss.RoundedBorder()).Rows(rows...).String()
-	log.Println("table")
-	log.Println(table)
-	return table
+	return lipgloss.JoinVertical(lipgloss.Top, rows...)
 }
 
 func (m Model) View() string {
