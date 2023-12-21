@@ -18,6 +18,7 @@ const (
 	initialLoad sessionState = iota
 	listView
 	detailView
+	fatalError
 )
 
 type mainModel struct {
@@ -41,7 +42,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newServiceDetail := false
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-
+		if m.state == fatalError {
+			return m, tea.Quit
+		}
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		} else if msg.Type == tea.KeyEnter && m.state == listView {
@@ -67,11 +70,11 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = listView
 	case errMsg:
 		m.err = msg
-		return m, tea.Quit
+		m.state = fatalError
+		return m, nil
 	}
 
 	var cmd tea.Cmd
-	log.Printf("switch state %d \n", m.state)
 	switch m.state {
 	case initialLoad:
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -91,8 +94,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m mainModel) View() string {
-	// log.Printf("view State: %d \n", m.state)
 	switch m.state {
+	case fatalError:
+		return m.err.Error()
 	case initialLoad:
 		return m.spinner.View()
 	case listView:
@@ -125,6 +129,7 @@ func main() {
 	initialCall := func() tea.Msg {
 		services, err := awsLayer.FetchServiceList()
 		if err != nil {
+			log.Println("error fetching service list")
 			return errMsg{err}
 		}
 		items := make([]listtui.ListItem, len(services))
