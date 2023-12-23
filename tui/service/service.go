@@ -3,12 +3,14 @@ package service
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/types"
+	"github.com/mtyurt/ecstui/utils"
 )
 
 type sessionState int
@@ -22,17 +24,17 @@ const (
 var (
 	styles            = list.DefaultStyles()
 	smallSectionStyle = lipgloss.NewStyle().
-				Width(20).
+				Width(35).
 				Height(6).
-				Margin(1, 1).
+				Margin(0, 1, 0, 0).
 				Align(lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	largeSectionStyle = lipgloss.NewStyle().
 				Width(80).
 				Height(10).
-				Margin(1, 1).
-				Align(lipgloss.Center, lipgloss.Center).
+				Margin(0, 1, 0, 0).
+				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	foreground = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
@@ -98,14 +100,21 @@ func (m *Model) initializeSections() {
 	}
 	log.Println(serviceStatus)
 	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
-	if *serviceStatus.RunningCount != *serviceStatus.DesiredCount {
-		taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("updating to desired: %d, pending: %d...", serviceStatus.DesiredCount, *serviceStatus.PendingCount))
-	}
 	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
+
+	deploymentString := ""
+	if len(serviceStatus.CapacityProviderStrategy) > 0 {
+		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
+	}
+	deploymentString = deploymentString + fmt.Sprintf("controller: %s\n", *serviceStatus.DeploymentController.Type)
+	taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
+	deploymentString = deploymentString + fmt.Sprintf("task def: %s\n", taskDef)
 
 	m.sections = []section{
 		{title: "task", content: taskString},
 		{title: "status", content: *serviceStatus.Status},
+		{title: "deployment", content: foreground.Render(deploymentString)},
+		{title: "images", content: foreground.Align(lipgloss.Left).Render(taskDef + "\n" + strings.Join(m.ecsStatus.Images, "\n"))},
 		{title: "events", content: events, size: largeSection},
 	}
 }
@@ -147,10 +156,12 @@ func (m Model) renderSection(index int) string {
 func (m Model) sectionsView() string {
 	rows := []string{}
 	i := 0
-	for i < len(m.sections)/2 {
+	log.Printf("total sections: %d\n", len(m.sections))
+	for i < len(m.sections)/2+1 {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i), m.renderSection(i+1)))
 		i += 2
 	}
+	log.Printf("end of for: %d\n", i)
 	if i < len(m.sections) {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i)))
 	}

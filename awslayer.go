@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	autoscaling "github.com/aws/aws-sdk-go/service/applicationautoscaling"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/mtyurt/ecstui/types"
+	"github.com/mtyurt/ecstui/utils"
 )
 
 type AWSInteractionLayer struct {
@@ -69,8 +69,8 @@ func (a *AWSInteractionLayer) FetchServiceList() ([]ECSService, error) {
 
 		for _, service := range services {
 			itemList = append(itemList, ECSService{
-				Service: getLastItemAfterSplit(*service, "/"),
-				Cluster: getLastItemAfterSplit(*cluster, "/"),
+				Service: utils.GetLastItemAfterSplit(*service, "/"),
+				Cluster: utils.GetLastItemAfterSplit(*cluster, "/"),
 			})
 		}
 	}
@@ -78,9 +78,21 @@ func (a *AWSInteractionLayer) FetchServiceList() ([]ECSService, error) {
 	return itemList, nil
 }
 
-func getLastItemAfterSplit(str, separator string) string {
-	split := strings.Split(str, separator)
-	return split[len(split)-1]
+func (a *AWSInteractionLayer) GetImagesInTaskDefinition(taskDefinitionArn string) ([]string, error) {
+	taskDefinition, err := a.ecs.DescribeTaskDefinition(&ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(taskDefinitionArn),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe task definition: %v", err)
+	}
+
+	var images []string
+	log.Printf("task definition: %v\n", taskDefinition.TaskDefinition.ContainerDefinitions)
+	for _, container := range taskDefinition.TaskDefinition.ContainerDefinitions {
+		images = append(images, utils.GetLastItemAfterSplit(*container.Image, "amazonaws.com/"))
+	}
+
+	return images, nil
 }
 
 func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*types.ServiceStatus, error) {
@@ -109,6 +121,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		ResourceIds:      []*string{&resourceID},
 	})
 	if err != nil {
+		log.Printf("failed to describe scalable targets: %v\n", err)
 		return nil, err
 	}
 	if len(targets.ScalableTargets) > 0 {
@@ -116,6 +129,12 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 			Min: *targets.ScalableTargets[0].MinCapacity,
 			Max: *targets.ScalableTargets[0].MaxCapacity,
 		}
+	}
+
+	response.Images, err = a.GetImagesInTaskDefinition(*result.Services[0].TaskDefinition)
+	if err != nil {
+		log.Printf("failed to get images in task definition: %v\n", err)
+		return nil, err
 	}
 
 	return response, nil

@@ -9,6 +9,7 @@ type ServiceScale struct {
 	Max int64
 }
 type ServiceStatus struct {
-	Ecs *ecs.Service
-	Asg ServiceScale
+	Ecs    *ecs.Service
+	Asg    ServiceScale
+	Images []string
 }
