@@ -1,17 +1,21 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	autoscaling "github.com/aws/aws-sdk-go/service/applicationautoscaling"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/mtyurt/ecstui/types"
 )
 
 type AWSInteractionLayer struct {
 	sess *session.Session
 	ecs  *ecs.ECS
+	asg  *autoscaling.ApplicationAutoScaling
 }
 
 func NewAWSInteractionLayer() *AWSInteractionLayer {
@@ -20,6 +24,7 @@ func NewAWSInteractionLayer() *AWSInteractionLayer {
 	return &AWSInteractionLayer{
 		sess: sess,
 		ecs:  ecs.New(sess),
+		asg:  autoscaling.New(sess),
 	}
 }
 
@@ -78,10 +83,10 @@ func getLastItemAfterSplit(str, separator string) string {
 	return split[len(split)-1]
 }
 
-func (a *AWSInteractionLayer) FetchServiceStatus(cluster string, serviceArn string) (*ecs.Service, error) {
+func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*types.ServiceStatus, error) {
 	input := &ecs.DescribeServicesInput{
 		Cluster:  aws.String(cluster),
-		Services: []*string{&serviceArn},
+		Services: []*string{&service},
 	}
 
 	log.Printf("fetching service status with input %v\n", input)
@@ -94,5 +99,24 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster string, serviceArn stri
 		return nil, nil
 	}
 
-	return result.Services[0], nil
+	response := &types.ServiceStatus{
+		Ecs: result.Services[0],
+	}
+
+	resourceID := fmt.Sprintf("service/%s/%s", cluster, service)
+	targets, err := a.asg.DescribeScalableTargets(&autoscaling.DescribeScalableTargetsInput{
+		ServiceNamespace: aws.String("ecs"),
+		ResourceIds:      []*string{&resourceID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(targets.ScalableTargets) > 0 {
+		response.Asg = types.ServiceScale{
+			Min: *targets.ScalableTargets[0].MinCapacity,
+			Max: *targets.ScalableTargets[0].MaxCapacity,
+		}
+	}
+
+	return response, nil
 }

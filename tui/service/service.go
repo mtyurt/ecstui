@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mtyurt/ecstui/spinnertui"
+	"github.com/mtyurt/ecstui/types"
 )
 
 type sessionState int
@@ -25,16 +25,18 @@ var (
 				Width(20).
 				Height(6).
 				Margin(1, 1).
-				Align(lipgloss.Center, lipgloss.Center).
+				Align(lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("69"))
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	largeSectionStyle = lipgloss.NewStyle().
 				Width(80).
 				Height(10).
 				Margin(1, 1).
 				Align(lipgloss.Center, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.Color("69"))
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
+	foreground = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
+	subtle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#565656", Dark: "#454545"})
 )
 
 type sectionSize int
@@ -55,7 +57,7 @@ type Model struct {
 	cluster, serviceArn string
 	serviceFetcher      func() tea.Msg
 	spinner             spinnertui.Model
-	ecsStatus           *ecs.Service
+	ecsStatus           *types.ServiceStatus
 	err                 error
 	sections            []section
 }
@@ -64,9 +66,9 @@ type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
 
-type serviceMsg *ecs.Service
+type serviceMsg *types.ServiceStatus
 
-func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*ecs.Service, error)) Model {
+func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
 	serviceFetcher := func() tea.Msg {
 		log.Println("started fetching service status")
 		defer log.Println("finished fetching service status")
@@ -90,12 +92,20 @@ func (m Model) Init() tea.Cmd {
 
 func (m *Model) initializeSections() {
 	events := ""
-	for _, event := range m.ecsStatus.Events {
-		events = events + fmt.Sprintf("%s %s\n", *event.CreatedAt, *event.Message)
+	serviceStatus := *m.ecsStatus.Ecs
+	for _, event := range serviceStatus.Events {
+		events = events + *event.Message + "\n"
 	}
+	log.Println(serviceStatus)
+	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
+	if *serviceStatus.RunningCount != *serviceStatus.DesiredCount {
+		taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("updating to desired: %d, pending: %d...", serviceStatus.DesiredCount, *serviceStatus.PendingCount))
+	}
+	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
+
 	m.sections = []section{
-		{title: "task count", content: fmt.Sprintf("%d", *m.ecsStatus.RunningCount)},
-		{title: "status", content: *m.ecsStatus.Status},
+		{title: "task", content: taskString},
+		{title: "status", content: *serviceStatus.Status},
 		{title: "events", content: events, size: largeSection},
 	}
 }
@@ -144,9 +154,6 @@ func (m Model) sectionsView() string {
 	if i < len(m.sections) {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i)))
 	}
-	log.Println("rows")
-	log.Println(rows)
-
 	return lipgloss.JoinVertical(lipgloss.Top, rows...)
 }
 
