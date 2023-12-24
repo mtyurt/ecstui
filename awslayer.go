@@ -131,10 +131,12 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		}
 	}
 
-	response.Images, err = a.GetImagesInTaskDefinition(*result.Services[0].TaskDefinition)
-	if err != nil {
-		log.Printf("failed to get images in task definition: %v\n", err)
-		return nil, err
+	if result.Services[0].TaskDefinition != nil {
+		response.Images, err = a.GetImagesInTaskDefinition(*result.Services[0].TaskDefinition)
+		if err != nil {
+			log.Printf("failed to get images in task definition: %v\n", err)
+			return nil, err
+		}
 	}
 
 	return response, nil

@@ -38,7 +38,7 @@ var (
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	foreground = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
-	subtle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#565656", Dark: "#454545"})
+	subtle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 )
 
 type sectionSize int
@@ -95,8 +95,11 @@ func (m Model) Init() tea.Cmd {
 func (m *Model) initializeSections() {
 	events := ""
 	serviceStatus := *m.ecsStatus.Ecs
-	for _, event := range serviceStatus.Events {
+	for i, event := range serviceStatus.Events {
 		events = events + *event.Message + "\n"
+		if i > 5 {
+			break
+		}
 	}
 	log.Println(serviceStatus)
 	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
@@ -107,16 +110,20 @@ func (m *Model) initializeSections() {
 		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
 	}
 	deploymentString = deploymentString + fmt.Sprintf("controller: %s\n", *serviceStatus.DeploymentController.Type)
-	taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
-	deploymentString = deploymentString + fmt.Sprintf("task def: %s\n", taskDef)
 
 	m.sections = []section{
 		{title: "task", content: taskString},
 		{title: "status", content: *serviceStatus.Status},
 		{title: "deployment", content: foreground.Render(deploymentString)},
-		{title: "images", content: foreground.Align(lipgloss.Left).Render(taskDef + "\n" + strings.Join(m.ecsStatus.Images, "\n"))},
-		{title: "events", content: events, size: largeSection},
 	}
+
+	if serviceStatus.TaskDefinition != nil {
+		taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
+		m.sections = append(m.sections, section{
+			title:   fmt.Sprintf("taskdef\n%s", taskDef),
+			content: foreground.Render(strings.Join(m.ecsStatus.Images, "\n"))})
+	}
+	m.sections = append(m.sections, section{title: "events", content: events, size: largeSection})
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	log.Printf("servicedetail update: %v\n", msg)
@@ -151,7 +158,7 @@ func (m Model) renderSection(index int) string {
 		style = largeSectionStyle
 	}
 
-	return style.Render(styles.Title.Render(m.sections[index].title) + "\n\n" + m.sections[index].content + "\n")
+	return style.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(m.sections[index].title) + "\n\n" + m.sections[index].content + "\n")
 }
 func (m Model) sectionsView() string {
 	rows := []string{}
@@ -161,7 +168,6 @@ func (m Model) sectionsView() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i), m.renderSection(i+1)))
 		i += 2
 	}
-	log.Printf("end of for: %d\n", i)
 	if i < len(m.sections) {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i)))
 	}
