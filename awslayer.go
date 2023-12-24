@@ -8,23 +8,26 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	autoscaling "github.com/aws/aws-sdk-go/service/applicationautoscaling"
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
 )
 
 type AWSInteractionLayer struct {
-	sess *session.Session
-	ecs  *ecs.ECS
-	asg  *autoscaling.ApplicationAutoScaling
+	sess  *session.Session
+	ecs   *ecs.ECS
+	asg   *autoscaling.ApplicationAutoScaling
+	elbv2 *elbv2.ELBV2
 }
 
 func NewAWSInteractionLayer() *AWSInteractionLayer {
 	sess := session.Must(session.NewSession())
 
 	return &AWSInteractionLayer{
-		sess: sess,
-		ecs:  ecs.New(sess),
-		asg:  autoscaling.New(sess),
+		sess:  sess,
+		ecs:   ecs.New(sess),
+		asg:   autoscaling.New(sess),
+		elbv2: elbv2.New(sess),
 	}
 }
 
@@ -139,5 +142,71 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		}
 	}
 
+	if len(result.Services[0].LoadBalancers) > 0 {
+		for _, lb := range result.Services[0].LoadBalancers {
+			lbConfig, err := a.findLoadBalancersForTargetGroup(*lb.TargetGroupArn)
+			if err != nil {
+				log.Printf("failed to find load balancers for target group: %v\n", err)
+				return nil, err
+			}
+			response.LbConfigs = append(response.LbConfigs, lbConfig...)
+		}
+	}
+
 	return response, nil
+}
+
+func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(targetGroupArn string) ([]types.LbConfig, error) {
+	// Describe the load balancers
+	lbResp, err := a.elbv2.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	var lbConfigs []types.LbConfig
+	for _, lb := range lbResp.LoadBalancers {
+		// Describe the listeners to find associated target groups
+		listenerResp, err := a.elbv2.DescribeListeners(&elbv2.DescribeListenersInput{
+			LoadBalancerArn: lb.LoadBalancerArn,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, listener := range listenerResp.Listeners {
+			ruleResp, err := a.elbv2.DescribeRules(&elbv2.DescribeRulesInput{
+				ListenerArn: listener.ListenerArn,
+			})
+
+			if err != nil {
+				return nil, err
+			}
+
+			for _, rule := range ruleResp.Rules {
+				for _, action := range rule.Actions {
+					if *action.Type == "forward" {
+						if *action.TargetGroupArn == targetGroupArn {
+							lbConfigs = append(lbConfigs, types.LbConfig{
+								LBName:   *lb.LoadBalancerName,
+								TGName:   utils.GetLastItemAfterSplit(*rule.Actions[0].TargetGroupArn, "targetgroup/"),
+								TGWeigth: 100,
+							})
+						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
+							for _, tg := range action.ForwardConfig.TargetGroups {
+								if *tg.TargetGroupArn == targetGroupArn {
+									lbConfigs = append(lbConfigs, types.LbConfig{
+										LBName:   *lb.LoadBalancerName,
+										TGName:   utils.GetLastItemAfterSplit(*tg.TargetGroupArn, "targetgroup/"),
+										TGWeigth: *tg.Weight,
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return lbConfigs, nil
 }

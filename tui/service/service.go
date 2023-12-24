@@ -92,6 +92,13 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
 }
 
+func (m *Model) renderLbConfig(lbConfig []types.LbConfig) string {
+	lbString := ""
+	for _, lb := range lbConfig {
+		lbString = fmt.Sprintf("%s -> %s (%%%d)\n", lb.LBName, lb.TGName, lb.TGWeigth)
+	}
+	return lbString
+}
 func (m *Model) initializeSections() {
 	events := ""
 	serviceStatus := *m.ecsStatus.Ecs
@@ -123,17 +130,23 @@ func (m *Model) initializeSections() {
 			title:   fmt.Sprintf("taskdef\n%s", taskDef),
 			content: foreground.Render(strings.Join(m.ecsStatus.Images, "\n"))})
 	}
+
+	lbSection := "not configured"
+	if m.ecsStatus.LbConfigs != nil && len(m.ecsStatus.LbConfigs) > 0 {
+		lbSection = m.renderLbConfig(m.ecsStatus.LbConfigs)
+	}
+	m.sections = append(m.sections, section{title: "loadbalancer", content: lbSection, size: largeSection})
 	m.sections = append(m.sections, section{title: "events", content: events, size: largeSection})
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	log.Printf("servicedetail update: %v\n", msg)
 	switch msg := msg.(type) {
 	case serviceMsg:
-		log.Printf("servicemsg received: %v\n", *msg)
+		log.Println("servicedetail loaded")
 		m.ecsStatus = msg
 		m.initializeSections()
 		m.state = loaded
 	case errMsg:
+		log.Println("servicedetail error")
 		m.err = msg
 		m.state = errorState
 	default:

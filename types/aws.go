@@ -8,8 +8,15 @@ type ServiceScale struct {
 	Min int64
 	Max int64
 }
+
+type LbConfig struct {
+	LBName   string
+	TGName   string
+	TGWeigth int64
+}
 type ServiceStatus struct {
-	Ecs    *ecs.Service
-	Asg    ServiceScale
-	Images []string
+	Ecs       *ecs.Service
+	Asg       ServiceScale
+	Images    []string
+	LbConfigs []LbConfig
 }
