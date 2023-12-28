@@ -5,9 +5,11 @@ import (
 	"log"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	humanizer "github.com/dustin/go-humanize"
 	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
@@ -62,13 +64,14 @@ type Model struct {
 	ecsStatus           *types.ServiceStatus
 	err                 error
 	sections            []section
+	taskSetCreation     map[string]ecs.TaskSet
 }
 
 type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
 
-type serviceMsg *types.ServiceStatus
+type ServiceMsg *types.ServiceStatus
 
 func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
 	serviceFetcher := func() tea.Msg {
@@ -78,12 +81,14 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 		if err != nil {
 			return errMsg{err}
 		}
-		return serviceMsg(serviceConfig)
+		return ServiceMsg(serviceConfig)
 	}
 	return Model{cluster: cluster,
-		serviceArn:     serviceArn,
-		serviceFetcher: serviceFetcher,
-		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service))}
+		serviceArn:      serviceArn,
+		serviceFetcher:  serviceFetcher,
+		spinner:         spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		taskSetCreation: make(map[string]ecs.TaskSet),
+	}
 }
 
 func (m *Model) SetSize(width, height int) {
@@ -95,7 +100,8 @@ func (m Model) Init() tea.Cmd {
 func (m *Model) renderLbConfig(lbConfig []types.LbConfig) string {
 	lbString := ""
 	for _, lb := range lbConfig {
-		lbString = fmt.Sprintf("%s -> %s (%%%d)\n", lb.LBName, lb.TGName, lb.TGWeigth)
+		taskCreation := *m.taskSetCreation[lb.TaskSetID].CreatedAt
+		lbString = lbString + fmt.Sprintf("%s - %s -> %s (%%%d)\ncreated %s\n", lb.TaskSetID, lb.LBName, lb.TGName, lb.TGWeigth, humanizer.Time(taskCreation))
 	}
 	return lbString
 }
@@ -108,7 +114,13 @@ func (m *Model) initializeSections() {
 			break
 		}
 	}
-	log.Println(serviceStatus)
+
+	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
+		for _, ts := range serviceStatus.TaskSets {
+			m.taskSetCreation[*ts.Id] = *ts
+		}
+	}
+
 	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
 	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
 
@@ -138,9 +150,10 @@ func (m *Model) initializeSections() {
 	m.sections = append(m.sections, section{title: "loadbalancer", content: lbSection, size: largeSection})
 	m.sections = append(m.sections, section{title: "events", content: events, size: largeSection})
 }
+
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case serviceMsg:
+	case ServiceMsg:
 		log.Println("servicedetail loaded")
 		m.ecsStatus = msg
 		m.initializeSections()
@@ -163,6 +176,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) TestUpdate(status *types.ServiceStatus) {
+	m.ecsStatus = status
+	m.state = loaded
+	m.initializeSections()
 }
 
 func (m Model) renderSection(index int) string {

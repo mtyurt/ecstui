@@ -142,21 +142,25 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		}
 	}
 
-	if len(result.Services[0].LoadBalancers) > 0 {
-		for _, lb := range result.Services[0].LoadBalancers {
-			lbConfig, err := a.findLoadBalancersForTargetGroup(*lb.TargetGroupArn)
-			if err != nil {
-				log.Printf("failed to find load balancers for target group: %v\n", err)
-				return nil, err
+	if len(result.Services[0].TaskSets) > 0 {
+		for _, ts := range result.Services[0].TaskSets {
+			if ts.LoadBalancers != nil && len(ts.LoadBalancers) > 0 {
+				for _, lb := range ts.LoadBalancers {
+					lbConfig, err := a.findLoadBalancersForTargetGroup(*ts.Id, *lb.TargetGroupArn)
+					if err != nil {
+						log.Printf("failed to find load balancers for target group: %v\n", err)
+						return nil, err
+					}
+					response.LbConfigs = append(response.LbConfigs, lbConfig...)
+				}
 			}
-			response.LbConfigs = append(response.LbConfigs, lbConfig...)
 		}
-	}
 
+	}
 	return response, nil
 }
 
-func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(targetGroupArn string) ([]types.LbConfig, error) {
+func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetGroupArn string) ([]types.LbConfig, error) {
 	// Describe the load balancers
 	lbResp, err := a.elbv2.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{})
 	if err != nil {
@@ -194,6 +198,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(targetGroupArn str
 						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
 							for _, tg := range action.ForwardConfig.TargetGroups {
 								if *tg.TargetGroupArn == targetGroupArn {
+									log.Println("found target group in forward config", *action.ForwardConfig)
 									lbConfigs = append(lbConfigs, types.LbConfig{
 										LBName:   *lb.LoadBalancerName,
 										TGName:   utils.GetLastItemAfterSplit(*tg.TargetGroupArn, "targetgroup/"),

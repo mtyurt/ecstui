@@ -10,9 +10,10 @@ type ServiceScale struct {
 }
 
 type LbConfig struct {
-	LBName   string
-	TGName   string
-	TGWeigth int64
+	TaskSetID string
+	LBName    string
+	TGName    string
+	TGWeigth  int64
 }
 type ServiceStatus struct {
 	Ecs       *ecs.Service
