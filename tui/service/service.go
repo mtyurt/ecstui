@@ -33,7 +33,7 @@ var (
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	largeSectionStyle = lipgloss.NewStyle().
-				Width(80).
+				Width(111).
 				Height(10).
 				Margin(0, 1, 0, 0).
 				Align(lipgloss.Left, lipgloss.Center).
@@ -43,19 +43,6 @@ var (
 	subtle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 )
 
-type sectionSize int
-
-const (
-	smallSection = iota
-	largeSection
-)
-
-type section struct {
-	content string
-	title   string
-	size    sectionSize
-}
-
 type Model struct {
 	state               sessionState
 	cluster, serviceArn string
@@ -63,7 +50,6 @@ type Model struct {
 	spinner             spinnertui.Model
 	ecsStatus           *types.ServiceStatus
 	err                 error
-	sections            []section
 	taskSetCreation     map[string]ecs.TaskSet
 }
 
@@ -97,60 +83,6 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
 }
 
-func (m *Model) renderLbConfig(lbConfig []types.LbConfig) string {
-	lbString := ""
-	for _, lb := range lbConfig {
-		taskCreation := *m.taskSetCreation[lb.TaskSetID].CreatedAt
-		lbString = lbString + fmt.Sprintf("%s - %s -> %s (%%%d)\ncreated %s\n", lb.TaskSetID, lb.LBName, lb.TGName, lb.TGWeigth, humanizer.Time(taskCreation))
-	}
-	return lbString
-}
-func (m *Model) initializeSections() {
-	events := ""
-	serviceStatus := *m.ecsStatus.Ecs
-	for i, event := range serviceStatus.Events {
-		events = events + *event.Message + "\n"
-		if i > 5 {
-			break
-		}
-	}
-
-	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
-		for _, ts := range serviceStatus.TaskSets {
-			m.taskSetCreation[*ts.Id] = *ts
-		}
-	}
-
-	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
-	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
-
-	deploymentString := ""
-	if len(serviceStatus.CapacityProviderStrategy) > 0 {
-		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
-	}
-	deploymentString = deploymentString + fmt.Sprintf("controller: %s\n", *serviceStatus.DeploymentController.Type)
-
-	m.sections = []section{
-		{title: "task", content: taskString},
-		{title: "status", content: *serviceStatus.Status},
-		{title: "deployment", content: foreground.Render(deploymentString)},
-	}
-
-	if serviceStatus.TaskDefinition != nil {
-		taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
-		m.sections = append(m.sections, section{
-			title:   fmt.Sprintf("taskdef\n%s", taskDef),
-			content: foreground.Render(strings.Join(m.ecsStatus.Images, "\n"))})
-	}
-
-	lbSection := "not configured"
-	if m.ecsStatus.LbConfigs != nil && len(m.ecsStatus.LbConfigs) > 0 {
-		lbSection = m.renderLbConfig(m.ecsStatus.LbConfigs)
-	}
-	m.sections = append(m.sections, section{title: "loadbalancer", content: lbSection, size: largeSection})
-	m.sections = append(m.sections, section{title: "events", content: events, size: largeSection})
-}
-
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case ServiceMsg:
@@ -178,30 +110,100 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m *Model) initializeSections() {
+	serviceStatus := *m.ecsStatus.Ecs
+
+	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
+		for _, ts := range serviceStatus.TaskSets {
+			m.taskSetCreation[*ts.Id] = *ts
+		}
+	}
+}
+
+func (m Model) taskView() string {
+	serviceStatus := *m.ecsStatus.Ecs
+	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
+	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
+	return m.renderSmallSection("task", taskString)
+}
+
+func (m Model) deploymentView() string {
+	serviceStatus := *m.ecsStatus.Ecs
+	deploymentString := ""
+	if len(serviceStatus.CapacityProviderStrategy) > 0 {
+		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
+	}
+	deploymentString = deploymentString + fmt.Sprintf("controller: %s\nstatus: %s\n", *serviceStatus.DeploymentController.Type, *serviceStatus.Status)
+	return m.renderSmallSection("deployment", deploymentString)
+}
+
+func (m Model) taskdefView() *string {
+	serviceStatus := *m.ecsStatus.Ecs
+	if serviceStatus.TaskDefinition == nil {
+		return nil
+	}
+	taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
+
+	content := fmt.Sprintf("taskdef: %s\n%s", taskDef, strings.Join(m.ecsStatus.Images, "\n"))
+	view := m.renderSmallSection("taskDef", content)
+	return &view
+}
+
+func (m Model) loadbalancerView() string {
+	lbSection := "not configured"
+	if m.ecsStatus.LbConfigs != nil && len(m.ecsStatus.LbConfigs) > 0 {
+		lbSection = m.renderLbConfig(m.ecsStatus.LbConfigs)
+	}
+	return m.renderLargeSection("loadbalancer", lbSection)
+}
+func (m *Model) renderLbConfig(lbConfig []types.LbConfig) string {
+	lbString := ""
+	for _, lb := range lbConfig {
+		taskCreation := *m.taskSetCreation[lb.TaskSetID].CreatedAt
+		lbString = lbString + fmt.Sprintf("%s - %s -> %s (%%%d)\ncreated %s\n", lb.TaskSetID, lb.LBName, lb.TGName, lb.TGWeigth, humanizer.Time(taskCreation))
+	}
+	return lbString
+}
+
+func (m Model) eventsView() string {
+	events := ""
+	serviceStatus := *m.ecsStatus.Ecs
+	for i, event := range serviceStatus.Events {
+		events = events + *event.Message + "\n"
+		if i > 5 {
+			break
+		}
+	}
+	if events == "" {
+		return ""
+	}
+	return m.renderLargeSection("events", events)
+}
+
 func (m *Model) TestUpdate(status *types.ServiceStatus) {
 	m.ecsStatus = status
 	m.state = loaded
 	m.initializeSections()
 }
 
-func (m Model) renderSection(index int) string {
-	style := smallSectionStyle
-	if m.sections[index].size == largeSection {
-		style = largeSectionStyle
-	}
-
-	return style.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(m.sections[index].title) + "\n\n" + m.sections[index].content + "\n")
+func (m Model) renderSmallSection(title, content string) string {
+	return smallSectionStyle.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
+}
+func (m Model) renderLargeSection(title, content string) string {
+	return largeSectionStyle.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
 }
 func (m Model) sectionsView() string {
 	rows := []string{}
-	i := 0
-	log.Printf("total sections: %d\n", len(m.sections))
-	for i < len(m.sections)/2+1 {
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i), m.renderSection(i+1)))
-		i += 2
+	firstRow := lipgloss.JoinHorizontal(lipgloss.Left, m.taskView(), m.deploymentView())
+	taskdef := m.taskdefView()
+	if taskdef != nil {
+		firstRow = lipgloss.JoinHorizontal(lipgloss.Left, firstRow, *taskdef)
 	}
-	if i < len(m.sections) {
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, m.renderSection(i)))
+	rows = append(rows, firstRow)
+	rows = append(rows, m.loadbalancerView())
+	events := m.eventsView()
+	if events != "" {
+		rows = append(rows, events)
 	}
 	return lipgloss.JoinVertical(lipgloss.Top, rows...)
 }

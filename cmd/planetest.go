@@ -141,6 +141,8 @@ func main() {
 		},
 	}
 
+	status.Images = []string{"api-kt:123abc4e", "datadog-agent:7.49.0"}
+
 	m := servicetui.New("test-cluster", "test-service", "service-arn", nil)
 
 	m.TestUpdate(&status)
