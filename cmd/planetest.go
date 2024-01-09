@@ -131,17 +131,22 @@ func main() {
 			TaskSetID: "ecs-svc/3517849243791983451",
 			LBName:    "staging-api-kt-lb",
 			TGName:    "staging-api-kt-tg",
-			TGWeigth:  100,
+			TGWeigth:  50,
 		},
 		{
 			TaskSetID: "ecs-svc/8895224990753999325",
 			LBName:    "staging-api-kt-lb",
 			TGName:    "staging-api-green",
-			TGWeigth:  100,
+			TGWeigth:  50,
 		},
 	}
 
 	status.Images = []string{"api-kt:123abc4e", "datadog-agent:7.49.0"}
+
+	status.TaskSetImages = map[string][]string{
+		"ecs-svc/3517849243791983451": {"api-kt:def679ac", "datadog-agent:7.49.0"},
+		"ecs-svc/8895224990753999325": {"api-kt:123abc4e", "datadog-agent:7.49.0"},
+	}
 
 	m := servicetui.New("test-cluster", "test-service", "service-arn", nil)
 

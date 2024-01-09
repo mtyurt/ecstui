@@ -90,7 +90,6 @@ func (a *AWSInteractionLayer) GetImagesInTaskDefinition(taskDefinitionArn string
 	}
 
 	var images []string
-	log.Printf("task definition: %v\n", taskDefinition.TaskDefinition.ContainerDefinitions)
 	for _, container := range taskDefinition.TaskDefinition.ContainerDefinitions {
 		images = append(images, utils.GetLastItemAfterSplit(*container.Image, "amazonaws.com/"))
 	}
@@ -141,7 +140,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 			return nil, err
 		}
 	}
-
+	response.TaskSetImages = make(map[string][]string)
 	if len(result.Services[0].TaskSets) > 0 {
 		for _, ts := range result.Services[0].TaskSets {
 			if ts.LoadBalancers != nil && len(ts.LoadBalancers) > 0 {
@@ -152,6 +151,13 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 						return nil, err
 					}
 					response.LbConfigs = append(response.LbConfigs, lbConfig...)
+				}
+			}
+			if ts.TaskDefinition != nil {
+				response.TaskSetImages[*ts.Id], err = a.GetImagesInTaskDefinition(*ts.TaskDefinition)
+				if err != nil {
+					log.Printf("failed to get images in task definition: %v\n", err)
+					return nil, err
 				}
 			}
 		}
@@ -178,6 +184,9 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 		}
 
 		for _, listener := range listenerResp.Listeners {
+			if *listener.Port != 443 {
+				continue
+			}
 			ruleResp, err := a.elbv2.DescribeRules(&elbv2.DescribeRulesInput{
 				ListenerArn: listener.ListenerArn,
 			})
@@ -187,22 +196,31 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 			}
 
 			for _, rule := range ruleResp.Rules {
+				// if *rule.Priority == "default" {
+				// 	continue
+				// }
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
 						if *action.TargetGroupArn == targetGroupArn {
+							log.Println("found target group", *action)
+							log.Println("found rule", *rule)
+							log.Println("found listener", *listener)
 							lbConfigs = append(lbConfigs, types.LbConfig{
-								LBName:   *lb.LoadBalancerName,
-								TGName:   utils.GetLastItemAfterSplit(*rule.Actions[0].TargetGroupArn, "targetgroup/"),
-								TGWeigth: 100,
+								LBName:    *lb.LoadBalancerName,
+								TGName:    utils.GetLastItemAfterSplit(*rule.Actions[0].TargetGroupArn, "targetgroup/"),
+								TGWeigth:  100,
+								TaskSetID: taskSetID,
+								Priority:  *rule.Priority,
 							})
 						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
 							for _, tg := range action.ForwardConfig.TargetGroups {
 								if *tg.TargetGroupArn == targetGroupArn {
 									log.Println("found target group in forward config", *action.ForwardConfig)
 									lbConfigs = append(lbConfigs, types.LbConfig{
-										LBName:   *lb.LoadBalancerName,
-										TGName:   utils.GetLastItemAfterSplit(*tg.TargetGroupArn, "targetgroup/"),
-										TGWeigth: *tg.Weight,
+										LBName:    *lb.LoadBalancerName,
+										TGName:    utils.GetLastItemAfterSplit(*tg.TargetGroupArn, "targetgroup/"),
+										TGWeigth:  *tg.Weight,
+										TaskSetID: taskSetID,
 									})
 								}
 							}

@@ -26,14 +26,14 @@ const (
 var (
 	styles            = list.DefaultStyles()
 	smallSectionStyle = lipgloss.NewStyle().
-				Width(35).
+				Width(28).
 				Height(6).
 				Margin(0, 1, 0, 0).
 				Align(lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	largeSectionStyle = lipgloss.NewStyle().
-				Width(111).
+				Width(90).
 				Height(10).
 				Margin(0, 1, 0, 0).
 				Align(lipgloss.Left, lipgloss.Center).
@@ -50,7 +50,8 @@ type Model struct {
 	spinner             spinnertui.Model
 	ecsStatus           *types.ServiceStatus
 	err                 error
-	taskSetCreation     map[string]ecs.TaskSet
+	taskSetMap          map[string]ecs.TaskSet
+	taskdefImageFetcher func() ([]string, error)
 }
 
 type errMsg struct{ err error }
@@ -70,10 +71,10 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 		return ServiceMsg(serviceConfig)
 	}
 	return Model{cluster: cluster,
-		serviceArn:      serviceArn,
-		serviceFetcher:  serviceFetcher,
-		spinner:         spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		taskSetCreation: make(map[string]ecs.TaskSet),
+		serviceArn:     serviceArn,
+		serviceFetcher: serviceFetcher,
+		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		taskSetMap:     make(map[string]ecs.TaskSet),
 	}
 }
 
@@ -115,7 +116,7 @@ func (m *Model) initializeSections() {
 
 	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
 		for _, ts := range serviceStatus.TaskSets {
-			m.taskSetCreation[*ts.Id] = *ts
+			m.taskSetMap[*ts.Id] = *ts
 		}
 	}
 }
@@ -133,7 +134,7 @@ func (m Model) deploymentView() string {
 	if len(serviceStatus.CapacityProviderStrategy) > 0 {
 		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
 	}
-	deploymentString = deploymentString + fmt.Sprintf("controller: %s\nstatus: %s\n", *serviceStatus.DeploymentController.Type, *serviceStatus.Status)
+	deploymentString = deploymentString + fmt.Sprintf("controller: %s\nstatus: %s", *serviceStatus.DeploymentController.Type, *serviceStatus.Status)
 	return m.renderSmallSection("deployment", deploymentString)
 }
 
@@ -149,20 +150,51 @@ func (m Model) taskdefView() *string {
 	return &view
 }
 
-func (m Model) loadbalancerView() string {
-	lbSection := "not configured"
+func (m Model) tasksetsView() string {
+	tsSection := "not configured"
 	if m.ecsStatus.LbConfigs != nil && len(m.ecsStatus.LbConfigs) > 0 {
-		lbSection = m.renderLbConfig(m.ecsStatus.LbConfigs)
+		tsSection = m.renderLbConfigs(m.ecsStatus.LbConfigs)
 	}
-	return m.renderLargeSection("loadbalancer", lbSection)
+	return m.renderLargeSection("tasksets", tsSection)
 }
-func (m *Model) renderLbConfig(lbConfig []types.LbConfig) string {
-	lbString := ""
+func (m *Model) renderLbConfigs(lbConfig []types.LbConfig) string {
+	viewByLb := make(map[string][]string)
 	for _, lb := range lbConfig {
-		taskCreation := *m.taskSetCreation[lb.TaskSetID].CreatedAt
-		lbString = lbString + fmt.Sprintf("%s - %s -> %s (%%%d)\ncreated %s\n", lb.TaskSetID, lb.LBName, lb.TGName, lb.TGWeigth, humanizer.Time(taskCreation))
+		if _, ok := viewByLb[lb.LBName]; !ok {
+			viewByLb[lb.LBName] = []string{m.renderTaskSetThroughLb(lb)}
+		} else {
+			viewByLb[lb.LBName] = append(viewByLb[lb.LBName], m.renderTaskSetThroughLb(lb))
+		}
 	}
-	return lbString
+	lbs := make([]string, 0, len(viewByLb))
+	for lbName, lbViews := range viewByLb {
+		top := smallSectionStyle.Copy().Width(len(lbViews) * 30).Height(3).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
+		tgView := lipgloss.JoinVertical(lipgloss.Center, top, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...))
+		lbs = append(lbs, tgView)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Left, lbs...)
+}
+
+func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
+	ts := m.taskSetMap[lbConfig.TaskSetID]
+	taskCreation := *ts.CreatedAt
+	taskDefinition := utils.GetLastItemAfterSplit(*ts.TaskDefinition, "/")
+	status := *ts.Status
+	titleTemplate := `|
+%d%%
+|
+▼
+
+%s
+priority %s`
+
+	title := fmt.Sprintf(titleTemplate, lbConfig.TGWeigth, lbConfig.TGName, lbConfig.Priority)
+
+	content := lipgloss.JoinVertical(lipgloss.Center, "created "+humanizer.Time(taskCreation), fmt.Sprintf("status: %s", status), fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n"))
+
+	title = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(title)
+
+	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(28).Margin(0, 4).Render(content))
 }
 
 func (m Model) eventsView() string {
@@ -193,14 +225,14 @@ func (m Model) renderLargeSection(title, content string) string {
 	return largeSectionStyle.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
 }
 func (m Model) sectionsView() string {
-	rows := []string{}
 	firstRow := lipgloss.JoinHorizontal(lipgloss.Left, m.taskView(), m.deploymentView())
 	taskdef := m.taskdefView()
 	if taskdef != nil {
 		firstRow = lipgloss.JoinHorizontal(lipgloss.Left, firstRow, *taskdef)
 	}
+	rows := []string{}
 	rows = append(rows, firstRow)
-	rows = append(rows, m.loadbalancerView())
+	rows = append(rows, m.tasksetsView())
 	events := m.eventsView()
 	if events != "" {
 		rows = append(rows, events)

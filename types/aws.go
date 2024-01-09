@@ -10,14 +10,17 @@ type ServiceScale struct {
 }
 
 type LbConfig struct {
-	TaskSetID string
-	LBName    string
-	TGName    string
-	TGWeigth  int64
+	TaskSetID    string
+	LBName       string
+	TGName       string
+	TGWeigth     int64
+	ListenerPort int64
+	Priority     string
 }
 type ServiceStatus struct {
-	Ecs       *ecs.Service
-	Asg       ServiceScale
-	Images    []string
-	LbConfigs []LbConfig
+	Ecs           *ecs.Service
+	Asg           ServiceScale
+	Images        []string
+	LbConfigs     []LbConfig
+	TaskSetImages map[string][]string
 }
