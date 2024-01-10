@@ -209,13 +209,16 @@ lb priority %s`
 
 	title := fmt.Sprintf(titleTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, "created "+humanizer.Time(taskCreation),
-		styles.Title.Copy().Padding(0).Render(truncateTo(*ts.Id, sectionWidth)),
-		fmt.Sprintf("status: %s", status), fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n"))
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, sectionWidth)),
+		"created "+humanizer.Time(taskCreation),
+		fmt.Sprintf("status: %s", status),
+		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
+		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n"))
 
 	title = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(title)
 
-	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(sectionWidth).Render(content))
+	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(sectionWidth).AlignHorizontal(lipgloss.Left).Render(content))
 }
 
 func (m Model) eventsView() string {
