@@ -189,7 +189,10 @@ func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID st
 	if err != nil {
 		return nil, err
 	}
-	log.Println("found tasks", listResp.TaskArns)
+	if len(listResp.TaskArns) == 0 {
+		log.Println("no tasks found for task set", taskSetID)
+		return []*ecs.Task{}, nil
+	}
 	taskResp, err := a.ecs.DescribeTasks(&ecs.DescribeTasksInput{
 		Cluster: aws.String(cluster),
 		Tasks:   listResp.TaskArns,
@@ -197,7 +200,6 @@ func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID st
 	if err != nil {
 		return nil, err
 	}
-	log.Println("found task details")
 
 	return taskResp.Tasks, nil
 }
@@ -238,7 +240,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 				}
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
-						if *action.TargetGroupArn == targetGroupArn {
+						if action.TargetGroupArn != nil && *action.TargetGroupArn == targetGroupArn {
 							lbConfigs = append(lbConfigs, types.LbConfig{
 								LBName:    *lb.LoadBalancerName,
 								TGName:    shortTgName,

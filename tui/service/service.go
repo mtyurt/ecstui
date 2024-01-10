@@ -266,6 +266,8 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	taskTable := table.New(
 		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 10}}),
 		table.WithRows(taskIds),
+		table.WithHeight(4),
+		table.WithFocused(false),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
@@ -274,7 +276,7 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
 		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "),
-		taskTable.View(),
+		"\n\n"+taskTable.View(),
 	)
 
 	return content
