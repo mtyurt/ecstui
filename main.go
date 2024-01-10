@@ -30,6 +30,7 @@ type mainModel struct {
 	err           error
 	awsLayer      *AWSInteractionLayer
 	logFile       *os.File
+	width, height int
 }
 
 func (m mainModel) Init() tea.Cmd {
@@ -55,6 +56,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selectedService.Service(),
 				selectedService.ServiceArn(),
 				m.awsLayer.FetchServiceStatus)
+			serviceDetail.SetSize(m.width, m.height)
 			m.serviceDetail = &serviceDetail
 			cmds = append(cmds, m.serviceDetail.Init())
 			newServiceDetail = true
