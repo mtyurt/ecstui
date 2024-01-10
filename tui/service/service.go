@@ -214,7 +214,7 @@ lb priority %s`
 		"created "+humanizer.Time(taskCreation),
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
-		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n"))
+		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "))
 
 	title = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(title)
 
