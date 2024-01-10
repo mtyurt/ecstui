@@ -18,9 +18,10 @@ type LbConfig struct {
 	Priority     string
 }
 type ServiceStatus struct {
-	Ecs           *ecs.Service
-	Asg           ServiceScale
-	Images        []string
-	LbConfigs     []LbConfig
-	TaskSetImages map[string][]string
+	Ecs                *ecs.Service
+	Asg                ServiceScale
+	Images             []string
+	TaskSetImages      map[string][]string
+	TaskSetConnections map[string][]LbConfig
+	TaskSetTasks       map[string][]*ecs.Task
 }

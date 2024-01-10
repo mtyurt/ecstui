@@ -126,20 +126,20 @@ func main() {
 		}},
 	}
 
-	status.LbConfigs = []types.LbConfig{
-		{
-			TaskSetID: "ecs-svc/3517849243791983451",
-			LBName:    "staging-api-kt-lb",
-			TGName:    "staging-api-kt-tg",
-			TGWeigth:  50,
-		},
-		{
-			TaskSetID: "ecs-svc/8895224990753999325",
-			LBName:    "staging-api-kt-lb",
-			TGName:    "staging-api-green",
-			TGWeigth:  50,
-		},
-	}
+	// lbConfigs := []types.LbConfig{
+	// 	{
+	// 		TaskSetID: "ecs-svc/3517849243791983451",
+	// 		LBName:    "staging-api-kt-lb",
+	// 		TGName:    "staging-api-kt-tg",
+	// 		TGWeigth:  50,
+	// 	},
+	// 	{
+	// 		TaskSetID: "ecs-svc/8895224990753999325",
+	// 		LBName:    "staging-api-kt-lb",
+	// 		TGName:    "staging-api-green",
+	// 		TGWeigth:  50,
+	// 	},
+	// }
 
 	status.Images = []string{"api-kt:123abc4e", "datadog-agent:7.49.0"}
 

@@ -144,17 +144,21 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		}
 	}
 	response.TaskSetImages = make(map[string][]string)
+	response.TaskSetConnections = make(map[string][]types.LbConfig)
+	response.TaskSetTasks = make(map[string][]*ecs.Task)
 	if len(result.Services[0].TaskSets) > 0 {
 		for _, ts := range result.Services[0].TaskSets {
 			if ts.LoadBalancers != nil && len(ts.LoadBalancers) > 0 {
+				lbConfigs := make([]types.LbConfig, 0)
 				for _, lb := range ts.LoadBalancers {
 					lbConfig, err := a.findLoadBalancersForTargetGroup(*ts.Id, *lb.TargetGroupArn)
 					if err != nil {
 						log.Printf("failed to find load balancers for target group: %v\n", err)
 						return nil, err
 					}
-					response.LbConfigs = append(response.LbConfigs, lbConfig...)
+					lbConfigs = append(lbConfigs, lbConfig...)
 				}
+				response.TaskSetConnections[*ts.Id] = lbConfigs
 			}
 			if ts.TaskDefinition != nil {
 				response.TaskSetImages[*ts.Id], err = a.GetImagesInTaskDefinition(*ts.TaskDefinition)
@@ -163,12 +167,40 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 					return nil, err
 				}
 			}
+
+			tasks, err := a.findTasksForTaskSet(cluster, service, *ts.Id)
+			if err != nil {
+				log.Printf("failed to find tasks for task set[%s]: %v\n", *ts.Id, err)
+				return nil, err
+			}
+			response.TaskSetTasks[*ts.Id] = tasks
 		}
 
 	}
 	return response, nil
 }
 
+func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID string) ([]*ecs.Task, error) {
+	log.Println("finding tasks for task set", cluster, service, taskSetID)
+	listResp, err := a.ecs.ListTasks(&ecs.ListTasksInput{
+		Cluster:   aws.String(cluster),
+		StartedBy: aws.String(taskSetID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.Println("found tasks", listResp.TaskArns)
+	taskResp, err := a.ecs.DescribeTasks(&ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster),
+		Tasks:   listResp.TaskArns,
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.Println("found task details")
+
+	return taskResp.Tasks, nil
+}
 func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetGroupArn string) ([]types.LbConfig, error) {
 	// Describe the load balancers
 	lbResp, err := a.elbv2.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{})

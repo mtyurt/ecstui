@@ -7,8 +7,10 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	humanizer "github.com/dustin/go-humanize"
 	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/types"
@@ -160,21 +162,29 @@ func (m Model) taskdefView() *string {
 
 func (m Model) tasksetsView() string {
 	tsSection := "not configured"
-	if m.ecsStatus.LbConfigs != nil && len(m.ecsStatus.LbConfigs) > 0 {
-		tsSection = m.renderLbConfigs(m.ecsStatus.LbConfigs)
+	if m.ecsStatus.TaskSetConnections != nil && len(m.ecsStatus.TaskSetConnections) > 0 {
+		tsSection = m.renderLbConfigs(m.ecsStatus.TaskSetConnections)
 	}
 
 	// print unattached tasksets
 	return m.renderLargeSection("tasksets", tsSection)
 }
-func (m *Model) renderLbConfigs(lbConfig []types.LbConfig) string {
+func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 	viewByLb := make(map[string][]string)
 	cfgByTaskSet := make(map[string]*types.LbConfig)
-	for _, lb := range lbConfig {
-		if _, ok := cfgByTaskSet[lb.TaskSetID]; !ok {
-			cfgByTaskSet[lb.TaskSetID] = &lb
-		} else {
-			cfgByTaskSet[lb.TaskSetID].Priority = cfgByTaskSet[lb.TaskSetID].Priority + ", " + lb.Priority
+	for taskSetID, lbs := range lbConfig {
+		priority := ""
+		for _, lb := range lbs {
+			if lb.LBName != "" && lb.Priority != "" {
+				priority = lb.Priority
+			}
+		}
+		cfgByTaskSet[taskSetID] = &types.LbConfig{
+			LBName:    lbs[0].LBName,
+			Priority:  priority,
+			TGName:    lbs[0].TGName,
+			TGWeigth:  lbs[0].TGWeigth,
+			TaskSetID: taskSetID,
 		}
 	}
 
@@ -197,7 +207,6 @@ func (m *Model) renderLbConfigs(lbConfig []types.LbConfig) string {
 		bottom := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
 		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...), bottom)
 		lbs = append(lbs, tgView)
-		// mark tasksets as visible
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Center, lbs...)
 }
@@ -250,12 +259,23 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	taskCreation := *ts.CreatedAt
 	taskDefinition := utils.GetLastItemAfterSplit(*ts.TaskDefinition, "/")
 	status := *ts.Status
+	taskIds := []table.Row{}
+	for _, task := range m.ecsStatus.TaskSetTasks[*ts.Id] {
+		taskIds = append(taskIds, table.Row{utils.GetLastItemAfterSplit(*task.TaskArn, "/"), *task.LastStatus})
+	}
+	taskTable := table.New(
+		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 10}}),
+		table.WithRows(taskIds),
+	)
+
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, taskSetWidth)),
 		"created "+humanizer.Time(taskCreation),
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
-		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "))
+		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "),
+		taskTable.View(),
+	)
 
 	return content
 }
