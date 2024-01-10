@@ -202,13 +202,10 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
 						if *action.TargetGroupArn == targetGroupArn {
-							log.Println("found target group", *action)
-							log.Println("found rule", *rule)
-							log.Println("found listener", *listener)
 							lbConfigs = append(lbConfigs, types.LbConfig{
 								LBName:    *lb.LoadBalancerName,
-								TGName:    utils.GetLastItemAfterSplit(*rule.Actions[0].TargetGroupArn, "targetgroup/"),
-								TGWeigth:  100,
+								TGName:    utils.GetLastItemAfterSplit(*action.TargetGroupArn, "targetgroup/"),
+								TGWeigth:  *action.ForwardConfig.TargetGroups[0].Weight,
 								TaskSetID: taskSetID,
 								Priority:  *rule.Priority,
 							})
