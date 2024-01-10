@@ -91,7 +91,10 @@ func (a *AWSInteractionLayer) GetImagesInTaskDefinition(taskDefinitionArn string
 
 	var images []string
 	for _, container := range taskDefinition.TaskDefinition.ContainerDefinitions {
-		images = append(images, utils.GetLastItemAfterSplit(*container.Image, "amazonaws.com/"))
+		image := utils.GetLastItemAfterSplit(*container.Image, "amazonaws.com/")
+		if image != "" {
+			images = append(images, image)
+		}
 	}
 
 	return images, nil
@@ -174,6 +177,8 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 	}
 
 	var lbConfigs []types.LbConfig
+	found := false
+	shortTgName := utils.GetLastItemAfterSplit(targetGroupArn, "targetgroup/")
 	for _, lb := range lbResp.LoadBalancers {
 		// Describe the listeners to find associated target groups
 		listenerResp, err := a.elbv2.DescribeListeners(&elbv2.DescribeListenersInput{
@@ -196,29 +201,32 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 			}
 
 			for _, rule := range ruleResp.Rules {
-				// if *rule.Priority == "default" {
-				// 	continue
-				// }
+				if *rule.Priority == "default" {
+					continue
+				}
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
 						if *action.TargetGroupArn == targetGroupArn {
 							lbConfigs = append(lbConfigs, types.LbConfig{
 								LBName:    *lb.LoadBalancerName,
-								TGName:    utils.GetLastItemAfterSplit(*action.TargetGroupArn, "targetgroup/"),
+								TGName:    shortTgName,
 								TGWeigth:  *action.ForwardConfig.TargetGroups[0].Weight,
 								TaskSetID: taskSetID,
 								Priority:  *rule.Priority,
 							})
+							found = true
 						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
 							for _, tg := range action.ForwardConfig.TargetGroups {
 								if *tg.TargetGroupArn == targetGroupArn {
 									log.Println("found target group in forward config", *action.ForwardConfig)
 									lbConfigs = append(lbConfigs, types.LbConfig{
 										LBName:    *lb.LoadBalancerName,
-										TGName:    utils.GetLastItemAfterSplit(*tg.TargetGroupArn, "targetgroup/"),
+										TGName:    shortTgName,
 										TGWeigth:  *tg.Weight,
 										TaskSetID: taskSetID,
+										Priority:  *rule.Priority,
 									})
+									found = true
 								}
 							}
 						}
@@ -226,6 +234,13 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 				}
 			}
 		}
+	}
+
+	if !found {
+		lbConfigs = append(lbConfigs, types.LbConfig{
+			TGName:    shortTgName,
+			TaskSetID: taskSetID,
+		})
 	}
 
 	return lbConfigs, nil

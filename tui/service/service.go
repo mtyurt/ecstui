@@ -169,17 +169,33 @@ func (m Model) tasksetsView() string {
 }
 func (m *Model) renderLbConfigs(lbConfig []types.LbConfig) string {
 	viewByLb := make(map[string][]string)
+	cfgByTaskSet := make(map[string]*types.LbConfig)
 	for _, lb := range lbConfig {
-		if _, ok := viewByLb[lb.LBName]; !ok {
-			viewByLb[lb.LBName] = []string{m.renderTaskSetThroughLb(lb)}
+		if _, ok := cfgByTaskSet[lb.TaskSetID]; !ok {
+			cfgByTaskSet[lb.TaskSetID] = &lb
 		} else {
-			viewByLb[lb.LBName] = append(viewByLb[lb.LBName], m.renderTaskSetThroughLb(lb))
+			cfgByTaskSet[lb.TaskSetID].Priority = cfgByTaskSet[lb.TaskSetID].Priority + ", " + lb.Priority
 		}
+	}
+
+	unattachedTaskSets := []string{}
+	for _, lb := range cfgByTaskSet {
+
+		if lb.LBName != "" {
+			if _, ok := viewByLb[lb.LBName]; !ok {
+				viewByLb[lb.LBName] = []string{m.renderTaskSetThroughLb(*lb)}
+			} else {
+				viewByLb[lb.LBName] = append(viewByLb[lb.LBName], m.renderTaskSetThroughLb(*lb))
+			}
+		} else {
+			unattachedTaskSets = append(unattachedTaskSets, m.renderUnattachedTaskSet(*lb))
+		}
+
 	}
 	lbs := make([]string, 0, len(viewByLb))
 	for lbName, lbViews := range viewByLb {
-		top := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
-		tgView := lipgloss.JoinVertical(lipgloss.Center, top, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...))
+		bottom := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
+		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...), bottom)
 		lbs = append(lbs, tgView)
 		// mark tasksets as visible
 	}
@@ -196,29 +212,52 @@ func truncateTo(s string, max int) string {
 func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
 	sectionWidth := taskSetWidth
 	ts := m.taskSetMap[lbConfig.TaskSetID]
+	attachmentTemplate := `▲
+|
+%d%%
+|
+
+%s
+priority: %s`
+
+	attachment := fmt.Sprintf(attachmentTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
+	return m.renderTaskSetWithAttachment(ts, attachment)
+}
+
+func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
+	ts := m.taskSetMap[lbConfig.TaskSetID]
+	attachmentTemplate := `▲
+|
+|
+
+%s
+(unattached)`
+
+	attachment := fmt.Sprintf(attachmentTemplate, truncateTo(lbConfig.TGName, taskSetWidth))
+
+	return m.renderTaskSetWithAttachment(ts, attachment)
+}
+
+func (m Model) renderTaskSetWithAttachment(ts ecs.TaskSet, attachment string) string {
+	content := m.renderTaskSetDetails(ts)
+
+	attachment = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(attachment)
+	return lipgloss.JoinVertical(lipgloss.Center, smallSectionStyle.Copy().Height(10).Width(taskSetWidth).AlignHorizontal(lipgloss.Left).Render(content), attachment)
+
+}
+
+func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	taskCreation := *ts.CreatedAt
 	taskDefinition := utils.GetLastItemAfterSplit(*ts.TaskDefinition, "/")
 	status := *ts.Status
-	titleTemplate := `|
-%d%%
-|
-▼
-
-%s
-lb priority %s`
-
-	title := fmt.Sprintf(titleTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
-
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, sectionWidth)),
+		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, taskSetWidth)),
 		"created "+humanizer.Time(taskCreation),
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
 		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "))
 
-	title = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(title)
-
-	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(sectionWidth).AlignHorizontal(lipgloss.Left).Render(content))
+	return content
 }
 
 func (m Model) eventsView() string {
