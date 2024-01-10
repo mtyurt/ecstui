@@ -39,9 +39,10 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	foreground = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
-	subtle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
-	minWidth   = 150
+	foreground   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
+	subtle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
+	minWidth     = 150
+	taskSetWidth = 32
 )
 
 type Model struct {
@@ -152,7 +153,7 @@ func (m Model) taskdefView() *string {
 	}
 	taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
 
-	content := fmt.Sprintf("taskdef: %s\n%s", taskDef, strings.Join(m.ecsStatus.Images, "\n"))
+	content := fmt.Sprintf("%s\n %s", taskDef, strings.Join(m.ecsStatus.Images, "\n "))
 	view := m.renderSmallSection("taskDef", content)
 	return &view
 }
@@ -177,15 +178,23 @@ func (m *Model) renderLbConfigs(lbConfig []types.LbConfig) string {
 	}
 	lbs := make([]string, 0, len(viewByLb))
 	for lbName, lbViews := range viewByLb {
-		top := smallSectionStyle.Copy().Width(len(lbViews) * 30).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
+		top := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
 		tgView := lipgloss.JoinVertical(lipgloss.Center, top, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...))
 		lbs = append(lbs, tgView)
 		// mark tasksets as visible
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Left, lbs...)
+	return lipgloss.JoinHorizontal(lipgloss.Center, lbs...)
+}
+
+func truncateTo(s string, max int) string {
+	if len(s) > max {
+		return s[:max-1] + "…"
+	}
+	return s
 }
 
 func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
+	sectionWidth := taskSetWidth
 	ts := m.taskSetMap[lbConfig.TaskSetID]
 	taskCreation := *ts.CreatedAt
 	taskDefinition := utils.GetLastItemAfterSplit(*ts.TaskDefinition, "/")
@@ -198,15 +207,15 @@ func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
 %s
 lb priority %s`
 
-	title := fmt.Sprintf(titleTemplate, lbConfig.TGWeigth, lbConfig.TGName, lbConfig.Priority)
+	title := fmt.Sprintf(titleTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
 
-	content := lipgloss.JoinVertical(lipgloss.Center, "created "+humanizer.Time(taskCreation),
-		fmt.Sprintf("id: %s", *ts.Id),
+	content := lipgloss.JoinVertical(lipgloss.Left, "created "+humanizer.Time(taskCreation),
+		styles.Title.Copy().Padding(0).Render(truncateTo(*ts.Id, sectionWidth)),
 		fmt.Sprintf("status: %s", status), fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n"))
 
 	title = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(title)
 
-	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(30).Margin(0, 4).Render(content))
+	return lipgloss.JoinVertical(lipgloss.Center, title, smallSectionStyle.Copy().Height(10).Width(sectionWidth).Render(content))
 }
 
 func (m Model) eventsView() string {
