@@ -166,7 +166,6 @@ func (m Model) tasksetsView() string {
 		tsSection = m.renderLbConfigs(m.ecsStatus.TaskSetConnections)
 	}
 
-	// print unattached tasksets
 	return m.renderLargeSection("tasksets", tsSection)
 }
 func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
@@ -225,7 +224,6 @@ func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
 |
 %d%%
 |
-
 %s
 priority: %s`
 
@@ -238,7 +236,7 @@ func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
 	attachmentTemplate := `▲
 |
 |
-
+|
 %s
 (unattached)`
 
@@ -263,11 +261,14 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	for _, task := range m.ecsStatus.TaskSetTasks[*ts.Id] {
 		taskIds = append(taskIds, table.Row{utils.GetLastItemAfterSplit(*task.TaskArn, "/"), *task.LastStatus})
 	}
+	tableStyles := table.DefaultStyles()
+	tableStyles.Selected = lipgloss.NewStyle()
 	taskTable := table.New(
 		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 10}}),
 		table.WithRows(taskIds),
-		table.WithHeight(4),
+		table.WithHeight(len(taskIds)),
 		table.WithFocused(false),
+		table.WithStyles(tableStyles),
 	)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
@@ -276,7 +277,7 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 		fmt.Sprintf("status: %s", status),
 		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
 		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "),
-		"\n\n"+taskTable.View(),
+		"tasks:\n"+taskTable.View(),
 	)
 
 	return content
