@@ -8,12 +8,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	humanizer "github.com/dustin/go-humanize"
 	"github.com/mtyurt/ecstui/spinnertui"
+	"github.com/mtyurt/ecstui/tui/events"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
 )
@@ -52,6 +52,7 @@ var (
 type Model struct {
 	state               sessionState
 	cluster, serviceArn string
+	service             string
 	serviceFetcher      func() tea.Msg
 	spinner             spinnertui.Model
 	ecsStatus           *types.ServiceStatus
@@ -59,7 +60,7 @@ type Model struct {
 	taskSetMap          map[string]ecs.TaskSet
 	taskdefImageFetcher func() ([]string, error)
 	width, height       int
-	eventsViewport      *viewport.Model
+	eventsViewport      *events.Model
 	Focused             bool
 }
 
@@ -81,6 +82,7 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 	}
 	return Model{cluster: cluster,
 		serviceArn:     serviceArn,
+		service:        service,
 		serviceFetcher: serviceFetcher,
 		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
 		taskSetMap:     make(map[string]ecs.TaskSet),
@@ -96,20 +98,11 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	if m.eventsViewport != nil {
-		m.eventsViewport.Width = width
-		m.eventsViewport.Height = height - 1
+		m.eventsViewport.SetSize(width, height-1)
 	}
 }
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
-}
-
-func getAllServiceEvents(svc *ecs.Service) []string {
-	var events []string
-	for _, event := range svc.Events {
-		events = append(events, fmt.Sprintf("%s - %s", *event.CreatedAt, *event.Message))
-	}
-	return events
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -127,12 +120,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		log.Println("servicedetail state: ", m.state)
 		k := msg.String()
 		if k == "ctrl+e" {
-			height := lipgloss.NewStyle().GetMaxHeight()
-			log.Println("servicedetail state transitions to events only, width, height:", m.width, height)
-			eventsViewport := viewport.New(m.width, 40)
+			eventsViewport := events.New(m.service, 200, 70, m.ecsStatus.Ecs.Events)
 
-			eventsViewport.SetContent(strings.Join(getAllServiceEvents(m.ecsStatus.Ecs), "\n"))
-			eventsViewport.SetYOffset(1)
 			m.eventsViewport = &eventsViewport
 
 			m.state = eventsOnly
@@ -143,7 +132,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 
 	default:
-		log.Printf("servicedetail update msg type: %s\n", msg)
+		log.Printf("servicedetail update msg type: %v\n", msg)
+		log.Println("servicedetail state: ", m.state)
 	}
 
 	var cmd tea.Cmd
@@ -153,6 +143,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 	case eventsOnly:
+		log.Println("servicedetail eventsOnly update with msg")
 		eventsViewport, cmd := m.eventsViewport.Update(msg)
 		m.eventsViewport = &eventsViewport
 		cmds = append(cmds, cmd)
