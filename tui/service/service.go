@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -23,6 +24,7 @@ const (
 	initial sessionState = iota
 	loaded
 	errorState
+	eventsOnly
 )
 
 var (
@@ -57,6 +59,8 @@ type Model struct {
 	taskSetMap          map[string]ecs.TaskSet
 	taskdefImageFetcher func() ([]string, error)
 	width, height       int
+	eventsViewport      *viewport.Model
+	Focused             bool
 }
 
 type errMsg struct{ err error }
@@ -80,6 +84,7 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 		serviceFetcher: serviceFetcher,
 		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
 		taskSetMap:     make(map[string]ecs.TaskSet),
+		Focused:        true,
 	}
 }
 
@@ -87,13 +92,25 @@ func (m *Model) SetSize(width, height int) {
 	if width < minWidth {
 		width = minWidth
 	}
+	log.Println("setting servicedetail size to width, height:", width, height)
 	m.width = width
 	m.height = height
+	if m.eventsViewport != nil {
+		m.eventsViewport.Width = width
+		m.eventsViewport.Height = height - 1
+	}
 }
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
 }
 
+func getAllServiceEvents(svc *ecs.Service) []string {
+	var events []string
+	for _, event := range svc.Events {
+		events = append(events, fmt.Sprintf("%s - %s", *event.CreatedAt, *event.Message))
+	}
+	return events
+}
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case ServiceMsg:
@@ -105,6 +122,26 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		log.Println("servicedetail error")
 		m.err = msg
 		m.state = errorState
+	case tea.KeyMsg:
+		log.Printf("servicedetail update key: %s\n", msg)
+		log.Println("servicedetail state: ", m.state)
+		k := msg.String()
+		if k == "ctrl+e" {
+			height := lipgloss.NewStyle().GetMaxHeight()
+			log.Println("servicedetail state transitions to events only, width, height:", m.width, height)
+			eventsViewport := viewport.New(m.width, 40)
+
+			eventsViewport.SetContent(strings.Join(getAllServiceEvents(m.ecsStatus.Ecs), "\n"))
+			eventsViewport.SetYOffset(1)
+			m.eventsViewport = &eventsViewport
+
+			m.state = eventsOnly
+		} else if k == "backspace" && m.state != loaded {
+			m.state = loaded
+			m.Focused = true
+			m.eventsViewport = nil
+		}
+
 	default:
 		log.Printf("servicedetail update msg type: %s\n", msg)
 	}
@@ -114,6 +151,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch m.state {
 	case initial:
 		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+	case eventsOnly:
+		eventsViewport, cmd := m.eventsViewport.Update(msg)
+		m.eventsViewport = &eventsViewport
 		cmds = append(cmds, cmd)
 	default:
 		return m, nil
@@ -338,6 +379,8 @@ func (m Model) View() string {
 		return m.sectionsView()
 	case errorState:
 		return m.err.Error()
+	case eventsOnly:
+		return m.eventsViewport.View()
 	default:
 		return m.serviceArn
 	}

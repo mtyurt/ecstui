@@ -60,7 +60,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.serviceDetail = &serviceDetail
 			cmds = append(cmds, m.serviceDetail.Init())
 			newServiceDetail = true
-		} else if m.state == detailView && (k == "esc" || k == "backspace") {
+		} else if m.state == detailView && k == "esc" && m.serviceDetail != nil && m.serviceDetail.Focused {
 			m.state = listView
 			m.serviceDetail = nil
 		}
