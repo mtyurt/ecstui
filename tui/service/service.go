@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,7 +26,8 @@ const (
 )
 
 var (
-	styles            = list.DefaultStyles()
+	styles = list.DefaultStyles()
+
 	smallSectionStyle = lipgloss.NewStyle().
 				Width(28).
 				Height(6).
@@ -42,6 +44,7 @@ var (
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	foreground   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
 	subtle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
+	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).MarginTop(3).Align(lipgloss.Left)
 	minWidth     = 150
 	taskSetWidth = 32
 )
@@ -58,6 +61,7 @@ type Model struct {
 	eventsViewport      *events.Model
 	taskSetView         *taskset.Model
 	Focused             bool
+	lastUpdateTime      time.Time
 }
 
 type errMsg struct{ err error }
@@ -65,6 +69,8 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 type ServiceMsg *types.ServiceStatus
+
+type TickMsg time.Time
 
 func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
 	serviceFetcher := func() tea.Msg {
@@ -95,16 +101,26 @@ func (m *Model) SetSize(width, height int) {
 		m.eventsViewport.SetSize(width, height-1)
 	}
 }
+
+func doTick() tea.Cmd {
+	return tea.Tick(time.Second*30, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
+}
+
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
 		log.Println("servicedetail loaded")
 		m.ecsStatus = msg
+		m.lastUpdateTime = time.Now()
 		m.initializeSections()
 		m.state = loaded
 	case errMsg:
@@ -127,13 +143,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.Focused = true
 			m.eventsViewport = nil
 		}
+	case TickMsg:
+		cmds = append(cmds, doTick(), m.serviceFetcher)
 
 	default:
 		log.Printf("servicedetail update msg type: %v\n", msg)
 	}
 
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
 	switch m.state {
 	case initial:
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -229,6 +245,16 @@ func (m Model) renderSmallSection(title, content string) string {
 func (m Model) renderLargeSection(title, content string) string {
 	return largeSectionStyle.Copy().Width(m.width - 19).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
 }
+
+func (m Model) footerView() string {
+	keyHelp := "ctrl+e: events"
+	lastUpdateTime := fmt.Sprintf("last update: %s", m.lastUpdateTime.Format("15:04:05.000"))
+	return helpStyle.Render(lipgloss.JoinHorizontal(lipgloss.Left,
+		keyHelp,
+		"\t\t",
+		lastUpdateTime,
+	))
+}
 func (m Model) sectionsView() string {
 	firstRow := lipgloss.JoinHorizontal(lipgloss.Center, m.taskView(), m.deploymentView())
 	taskdef := m.taskdefView()
@@ -242,6 +268,7 @@ func (m Model) sectionsView() string {
 	if events != "" {
 		rows = append(rows, events)
 	}
+	rows = append(rows, m.footerView())
 	view := lipgloss.JoinVertical(lipgloss.Center, rows...)
 
 	return lipgloss.NewStyle().
