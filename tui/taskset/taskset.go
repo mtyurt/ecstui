@@ -112,7 +112,9 @@ func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...), bottom)
 		lbs = append(lbs, tgView)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, lbs...)
+	lbs = append(lbs, unattachedTaskSets...)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, lbs...)
 }
 
 func truncateTo(s string, max int) string {
@@ -143,7 +145,9 @@ func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
 |
 |
 %s
-(unattached)`
+(unattached)
+
+`
 
 	attachment := fmt.Sprintf(attachmentTemplate, truncateTo(lbConfig.TGName, taskSetWidth))
 
