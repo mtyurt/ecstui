@@ -5,15 +5,13 @@ import (
 	"log"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	humanizer "github.com/dustin/go-humanize"
 	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/tui/events"
+	"github.com/mtyurt/ecstui/tui/taskset"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
 )
@@ -57,10 +55,9 @@ type Model struct {
 	spinner             spinnertui.Model
 	ecsStatus           *types.ServiceStatus
 	err                 error
-	taskSetMap          map[string]ecs.TaskSet
-	taskdefImageFetcher func() ([]string, error)
 	width, height       int
 	eventsViewport      *events.Model
+	taskSetView         *taskset.Model
 	Focused             bool
 }
 
@@ -85,7 +82,6 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 		service:        service,
 		serviceFetcher: serviceFetcher,
 		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		taskSetMap:     make(map[string]ecs.TaskSet),
 		Focused:        true,
 	}
 }
@@ -105,6 +101,8 @@ func (m Model) Init() tea.Cmd {
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
 		log.Println("servicedetail loaded")
 		m.ecsStatus = msg
@@ -149,6 +147,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+	if m.taskSetView != nil {
+		taskSetView, cmd := m.taskSetView.Update(msg)
+		m.taskSetView = &taskSetView
+		cmds = append(cmds, cmd)
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -156,9 +160,8 @@ func (m *Model) initializeSections() {
 	serviceStatus := *m.ecsStatus.Ecs
 
 	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
-		for _, ts := range serviceStatus.TaskSets {
-			m.taskSetMap[*ts.Id] = *ts
-		}
+		status := m.ecsStatus
+		m.taskSetView = taskset.New(status.TaskSetImages, status.TaskSetConnections, status.TaskSetTasks, status.Ecs.TaskSets, m.width, m.height)
 	}
 }
 
@@ -193,125 +196,11 @@ func (m Model) taskdefView() *string {
 
 func (m Model) tasksetsView() string {
 	tsSection := "not configured"
-	if m.ecsStatus.TaskSetConnections != nil && len(m.ecsStatus.TaskSetConnections) > 0 {
-		tsSection = m.renderLbConfigs(m.ecsStatus.TaskSetConnections)
+	if m.taskSetView != nil {
+		tsSection = m.taskSetView.View()
 	}
 
 	return m.renderLargeSection("tasksets", tsSection)
-}
-func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
-	viewByLb := make(map[string][]string)
-	cfgByTaskSet := make(map[string]*types.LbConfig)
-	for taskSetID, lbs := range lbConfig {
-		priority := ""
-		for _, lb := range lbs {
-			if lb.LBName != "" && lb.Priority != "" {
-				priority = lb.Priority
-			}
-		}
-		cfgByTaskSet[taskSetID] = &types.LbConfig{
-			LBName:    lbs[0].LBName,
-			Priority:  priority,
-			TGName:    lbs[0].TGName,
-			TGWeigth:  lbs[0].TGWeigth,
-			TaskSetID: taskSetID,
-		}
-	}
-
-	unattachedTaskSets := []string{}
-	for _, lb := range cfgByTaskSet {
-
-		if lb.LBName != "" {
-			if _, ok := viewByLb[lb.LBName]; !ok {
-				viewByLb[lb.LBName] = []string{m.renderTaskSetThroughLb(*lb)}
-			} else {
-				viewByLb[lb.LBName] = append(viewByLb[lb.LBName], m.renderTaskSetThroughLb(*lb))
-			}
-		} else {
-			unattachedTaskSets = append(unattachedTaskSets, m.renderUnattachedTaskSet(*lb))
-		}
-
-	}
-	lbs := make([]string, 0, len(viewByLb))
-	for lbName, lbViews := range viewByLb {
-		bottom := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
-		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...), bottom)
-		lbs = append(lbs, tgView)
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, lbs...)
-}
-
-func truncateTo(s string, max int) string {
-	if len(s) > max {
-		return s[:max-1] + "…"
-	}
-	return s
-}
-
-func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
-	sectionWidth := taskSetWidth
-	ts := m.taskSetMap[lbConfig.TaskSetID]
-	attachmentTemplate := `▲
-|
-%d%%
-|
-%s
-priority: %s`
-
-	attachment := fmt.Sprintf(attachmentTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
-	return m.renderTaskSetWithAttachment(ts, attachment)
-}
-
-func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
-	ts := m.taskSetMap[lbConfig.TaskSetID]
-	attachmentTemplate := `▲
-|
-|
-|
-%s
-(unattached)`
-
-	attachment := fmt.Sprintf(attachmentTemplate, truncateTo(lbConfig.TGName, taskSetWidth))
-
-	return m.renderTaskSetWithAttachment(ts, attachment)
-}
-
-func (m Model) renderTaskSetWithAttachment(ts ecs.TaskSet, attachment string) string {
-	content := m.renderTaskSetDetails(ts)
-
-	attachment = lipgloss.NewStyle().AlignHorizontal(lipgloss.Center).Render(attachment)
-	return lipgloss.JoinVertical(lipgloss.Center, smallSectionStyle.Copy().Height(10).Width(taskSetWidth).AlignHorizontal(lipgloss.Left).Render(content), attachment)
-
-}
-
-func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
-	taskCreation := *ts.CreatedAt
-	taskDefinition := utils.GetLastItemAfterSplit(*ts.TaskDefinition, "/")
-	status := *ts.Status
-	taskIds := []table.Row{}
-	for _, task := range m.ecsStatus.TaskSetTasks[*ts.Id] {
-		taskIds = append(taskIds, table.Row{utils.GetLastItemAfterSplit(*task.TaskArn, "/"), *task.LastStatus})
-	}
-	tableStyles := table.DefaultStyles()
-	tableStyles.Selected = lipgloss.NewStyle()
-	taskTable := table.New(
-		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 10}}),
-		table.WithRows(taskIds),
-		table.WithHeight(len(taskIds)),
-		table.WithFocused(false),
-		table.WithStyles(tableStyles),
-	)
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, taskSetWidth)),
-		"created "+humanizer.Time(taskCreation),
-		fmt.Sprintf("status: %s", status),
-		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
-		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.ecsStatus.TaskSetImages[*ts.Id], "\n - "),
-		"tasks:\n"+taskTable.View(),
-	)
-
-	return content
 }
 
 func (m Model) eventsView() string {
