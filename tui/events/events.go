@@ -2,10 +2,12 @@ package events
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,6 +54,7 @@ func New(title string, width, height int, events []*ecs.ServiceEvent) Model {
 	filterInput.Cursor.Blink = false
 	filterInput.Cursor.SetMode(cursor.CursorHide)
 	filterInput.Focus()
+	filterInput.KeyMap.DeleteCharacterBackward = key.NewBinding(key.WithKeys("backspace", "ctrl+h"))
 
 	m := Model{
 		eventsView: view,
@@ -71,6 +74,7 @@ func wrapEventMessage(message string, width, padding int) string {
 }
 
 func (m *Model) updateContent() {
+	log.Println("filterinput updating content")
 	width := m.eventsView.Width
 	var summary []string
 	for _, event := range m.events {
@@ -90,8 +94,16 @@ func (m Model) SetSize(width, height int) {
 	m.eventsView.Width = width
 	m.eventsView.Height = height
 }
+func (m Model) Focused() bool {
+	return !m.filterEnabled
+}
 func (m Model) Init() tea.Cmd {
 	return nil
+}
+
+func (m *Model) clearFilter() {
+	m.filterInput.SetValue("")
+	m.updateContent()
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -99,22 +111,28 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	cmds := []tea.Cmd{}
 
 	newFilter := false
+	var keyMsg tea.KeyMsg
 	if msg, ok := msg.(tea.KeyMsg); ok {
+		keyMsg = msg
 		if !m.filterEnabled {
 			switch msg.String() {
 			case "/":
 				m.filterEnabled = true
 				m.filterInput.Cursor.SetMode(cursor.CursorHide)
 				m.filterInput.Focus()
+				m.filterInput.KeyMap.DeleteCharacterBackward.SetEnabled(true)
+
 				newFilter = true
 			}
 		} else {
 			switch msg.String() {
 			case "esc":
 				m.filterEnabled = false
+				m.clearFilter()
 			case "ctrl+l":
-				m.filterInput.SetValue("")
-				m.updateContent()
+				m.clearFilter()
+			// case "backspace":
+			// 	m.filterInput.DeleteCharacterBackward()
 			default:
 				m.updateContent()
 			}
@@ -122,9 +140,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	}
 
 	if m.filterEnabled && !newFilter {
-		// log.Println("m.filterInput.Update", msg)
-		// log.Println("filterinput position", m.filterInput.Position())
-		// log.Println("filterinput value", m.filterInput.Value())
+		log.Println("m.filterInput.Update", msg)
+		log.Println("filterinput position", m.filterInput.Position())
+		log.Println("filterinput value", m.filterInput.Value())
+		log.Println("filterinput focus", m.filterInput.Focused())
+		log.Println("filterinput keymsg", keyMsg)
+		log.Println("backspace key", m.filterInput.KeyMap.DeleteCharacterBackward)
+		log.Println("backspace keymap", m.filterInput.KeyMap)
+		log.Println("key matches backspace", key.Matches(keyMsg, m.filterInput.KeyMap.DeleteCharacterBackward))
+		m.filterInput.KeyMap.DeleteCharacterBackward.SetEnabled(true)
+		log.Println("key matches backspace enabled", m.filterInput.KeyMap.DeleteCharacterBackward.Enabled())
 		newFilterInputModel, inputCmd := m.filterInput.Update(msg)
 		m.filterInput = newFilterInputModel
 		cmds = append(cmds, inputCmd)
