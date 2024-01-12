@@ -94,7 +94,6 @@ func (m *Model) SetSize(width, height int) {
 	if width < minWidth {
 		width = minWidth
 	}
-	log.Println("setting servicedetail size to width, height:", width, height)
 	m.width = width
 	m.height = height
 	if m.eventsViewport != nil {
@@ -125,7 +124,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.eventsViewport = &eventsViewport
 
 			m.state = eventsOnly
-		} else if k == "backspace" && m.state != loaded {
+			m.Focused = false
+		} else if k == "esc" && m.state != loaded {
 			m.state = loaded
 			m.Focused = true
 			m.eventsViewport = nil
@@ -133,7 +133,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	default:
 		log.Printf("servicedetail update msg type: %v\n", msg)
-		log.Println("servicedetail state: ", m.state)
 	}
 
 	var cmd tea.Cmd

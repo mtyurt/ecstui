@@ -61,6 +61,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.serviceDetail.Init())
 			newServiceDetail = true
 		} else if m.state == detailView && k == "esc" && m.serviceDetail != nil && m.serviceDetail.Focused {
+			log.Println("esc pressed, unfocusing service detail", m.serviceDetail.Focused)
 			m.state = listView
 			m.serviceDetail = nil
 		}

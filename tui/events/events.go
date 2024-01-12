@@ -2,10 +2,11 @@ package events
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,23 +27,40 @@ var (
 	}()
 
 	timestampStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "236", Dark: "248"})
+
+	filterPrompt = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#ECFD65"})
+
+	filterCursor = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#EE6FF8", Dark: "#EE6FF8"})
 )
 
 type Model struct {
-	eventsView viewport.Model
-	title      string
-	events     []*ecs.ServiceEvent
+	eventsView    viewport.Model
+	title         string
+	events        []*ecs.ServiceEvent
+	filterInput   textinput.Model
+	filterEnabled bool
 }
 
 func New(title string, width, height int, events []*ecs.ServiceEvent) Model {
 	view := viewport.New(width, height)
 	view.SetYOffset(1)
-	view.SetContent(getAllServiceEvents(events, width))
-	return Model{
+	filterInput := textinput.New()
+	filterInput.Prompt = "Filter: "
+	filterInput.Width = width - 10 - len(filterInput.Prompt)
+	filterInput.Cursor.Blink = false
+	filterInput.Cursor.SetMode(cursor.CursorHide)
+	filterInput.Focus()
+
+	m := Model{
 		eventsView: view,
 		title:      title,
 		events:     events,
 	}
+
+	m.updateContent()
+	return m
 }
 
 func wrapEventMessage(message string, width, padding int) string {
@@ -52,14 +70,20 @@ func wrapEventMessage(message string, width, padding int) string {
 	return strings.Join(lines, "\n"+wrapPrefix)
 }
 
-func getAllServiceEvents(events []*ecs.ServiceEvent, width int) string {
+func (m *Model) updateContent() {
+	width := m.eventsView.Width
 	var summary []string
-	for _, event := range events {
-		msg := wrapEventMessage(*event.Message, width-25, 25)
+	for _, event := range m.events {
+		if m.filterEnabled && !strings.Contains(strings.ToLower(*event.Message), strings.ToLower(m.filterInput.Value())) {
+			continue
+		}
+
+		msg := wrapEventMessage(*event.Message, width-25, 24)
 		timestamp := timestampStyle.Render(event.CreatedAt.Format("2006-01-02 15:04:05.000"))
 		summary = append(summary, fmt.Sprintf("%s %s", timestamp, msg))
 	}
-	return strings.Join(summary, "\n")
+	content := strings.Join(summary, "\n")
+	m.eventsView.SetContent(content)
 }
 
 func (m Model) SetSize(width, height int) {
@@ -72,12 +96,51 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
-	m.eventsView, cmd = m.eventsView.Update(msg)
-	log.Println("events view update", msg)
-	return m, cmd
+	cmds := []tea.Cmd{}
+
+	newFilter := false
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		if !m.filterEnabled {
+			switch msg.String() {
+			case "/":
+				m.filterEnabled = true
+				m.filterInput.Cursor.SetMode(cursor.CursorHide)
+				m.filterInput.Focus()
+				newFilter = true
+			}
+		} else {
+			switch msg.String() {
+			case "esc":
+				m.filterEnabled = false
+			case "ctrl+l":
+				m.filterInput.SetValue("")
+				m.updateContent()
+			default:
+				m.updateContent()
+			}
+		}
+	}
+
+	if m.filterEnabled && !newFilter {
+		// log.Println("m.filterInput.Update", msg)
+		// log.Println("filterinput position", m.filterInput.Position())
+		// log.Println("filterinput value", m.filterInput.Value())
+		newFilterInputModel, inputCmd := m.filterInput.Update(msg)
+		m.filterInput = newFilterInputModel
+		cmds = append(cmds, inputCmd)
+	} else {
+		m.eventsView, cmd = m.eventsView.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) headerView() string {
+	if m.filterEnabled {
+		view := titleStyle.Render("Filter: " + m.filterInput.View())
+		line := strings.Repeat("─", max(0, m.eventsView.Width-lipgloss.Width(view)))
+		return lipgloss.JoinHorizontal(lipgloss.Center, view, line)
+	}
 	title := titleStyle.Render(m.title)
 	line := strings.Repeat("─", max(0, m.eventsView.Width-lipgloss.Width(title)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
