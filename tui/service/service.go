@@ -53,7 +53,6 @@ type Model struct {
 	state               sessionState
 	cluster, serviceArn string
 	service             string
-	serviceFetcher      func() tea.Msg
 	spinner             spinnertui.Model
 	ecsStatus           *types.ServiceStatus
 	err                 error
@@ -62,6 +61,7 @@ type Model struct {
 	taskSetView         *taskset.Model
 	Focused             bool
 	lastUpdateTime      time.Time
+	ecsStatusFetcher    func(string, string) (*types.ServiceStatus, error)
 }
 
 type errMsg struct{ err error }
@@ -73,22 +73,24 @@ type ServiceMsg *types.ServiceStatus
 type TickMsg time.Time
 
 func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
-	serviceFetcher := func() tea.Msg {
-		log.Println("started fetching service status")
-		defer log.Println("finished fetching service status")
-		serviceConfig, err := ecsStatusFetcher(cluster, service)
-		if err != nil {
-			return errMsg{err}
-		}
-		return ServiceMsg(serviceConfig)
-	}
 	return Model{cluster: cluster,
-		serviceArn:     serviceArn,
-		service:        service,
-		serviceFetcher: serviceFetcher,
-		spinner:        spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		Focused:        true,
+		serviceArn:       serviceArn,
+		service:          service,
+		spinner:          spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		Focused:          true,
+		ecsStatusFetcher: ecsStatusFetcher,
 	}
+}
+
+func (m Model) fetchServiceStatus() tea.Msg {
+	log.Println("started fetching service status")
+	defer log.Println("finished fetching service status")
+	serviceConfig, err := m.ecsStatusFetcher(m.cluster, m.service)
+	if err != nil {
+		return errMsg{err}
+	}
+	return ServiceMsg(serviceConfig)
+
 }
 
 func (m *Model) SetSize(width, height int) {
@@ -109,7 +111,7 @@ func doTick() tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.serviceFetcher, m.spinner.SpinnerTick())
+	return tea.Batch(m.fetchServiceStatus, m.spinner.SpinnerTick(), doTick())
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -144,7 +146,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.eventsViewport = nil
 		}
 	case TickMsg:
-		cmds = append(cmds, doTick(), m.serviceFetcher)
+		log.Println("servicedetail tick")
+		cmds = append(cmds, doTick(), m.fetchServiceStatus)
 
 	default:
 		log.Printf("servicedetail update msg type: %v\n", msg)
@@ -159,14 +162,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		eventsViewport, cmd := m.eventsViewport.Update(msg)
 		m.eventsViewport = &eventsViewport
 		cmds = append(cmds, cmd)
-	default:
-		return m, nil
 	}
 	if m.taskSetView != nil {
 		taskSetView, cmd := m.taskSetView.Update(msg)
 		m.taskSetView = &taskSetView
 		cmds = append(cmds, cmd)
 	}
+	log.Println("servicedetail update returning", len(cmds), cmds)
 
 	return m, tea.Batch(cmds...)
 }
