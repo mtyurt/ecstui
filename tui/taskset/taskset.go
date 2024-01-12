@@ -2,7 +2,6 @@ package taskset
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
@@ -32,6 +31,7 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
+	bold = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
 )
 
 type Model struct {
@@ -164,12 +164,13 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	status := *ts.Status
 	taskIds := []table.Row{}
 	for _, task := range m.tasks[*ts.Id] {
-		taskIds = append(taskIds, table.Row{utils.GetLastItemAfterSplit(*task.TaskArn, "/"), *task.LastStatus})
+		taskIds = append(taskIds, table.Row{utils.GetLastItemAfterSplit(*task.TaskArn, "/"), utils.MapTaskStatusToLabel(*task.LastStatus)})
 	}
 	tableStyles := table.DefaultStyles()
 	tableStyles.Selected = lipgloss.NewStyle()
+	tableStyles.Header = tableStyles.Header.Copy().PaddingLeft(1)
 	taskTable := table.New(
-		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 10}}),
+		table.WithColumns([]table.Column{{Title: "id", Width: 10}, {Title: "status", Width: 30}}),
 		table.WithRows(taskIds),
 		table.WithHeight(len(taskIds)),
 		table.WithFocused(false),
@@ -179,10 +180,10 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, taskSetWidth)),
 		"created "+humanizer.Time(taskCreation),
-		fmt.Sprintf("status: %s", status),
-		fmt.Sprintf("steady: %s", *ts.StabilityStatus),
-		fmt.Sprintf("\ntaskdef: %s", taskDefinition), strings.Join(m.images[*ts.Id], "\n - "),
-		"tasks:\n"+taskTable.View(),
+		fmt.Sprintf("%s: %s", bold.Render("status"), status),
+		fmt.Sprintf("%s: %s", bold.Render("steady"), *ts.StabilityStatus),
+		fmt.Sprintf("\n%s: %s", bold.Render("taskdef"), taskDefinition), utils.JoinImageNames(m.images[*ts.Id]),
+		bold.Render("tasks:")+"\n"+taskTable.View(),
 	)
 
 	return content

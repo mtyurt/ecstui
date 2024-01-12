@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -189,7 +188,7 @@ func (m Model) taskdefView() *string {
 	}
 	taskDef := utils.GetLastItemAfterSplit(*serviceStatus.TaskDefinition, "/")
 
-	content := fmt.Sprintf("%s\n %s", taskDef, strings.Join(m.ecsStatus.Images, "\n "))
+	content := fmt.Sprintf("%s\n %s", taskDef, utils.JoinImageNames(m.ecsStatus.Images))
 	view := m.renderSmallSection("taskDef", content)
 	return &view
 }
