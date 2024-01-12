@@ -119,7 +119,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		log.Println("servicedetail state: ", m.state)
 		k := msg.String()
 		if k == "ctrl+e" {
-			eventsViewport := events.New(m.service, 200, 70, m.ecsStatus.Ecs.Events)
+			eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
 
 			m.eventsViewport = &eventsViewport
 

@@ -78,13 +78,41 @@ func (m *Model) updateContent() {
 
 		msg := wrapEventMessage(*event.Message, width-25, 24)
 		timestamp := timestampStyle.Render(event.CreatedAt.Format("2006-01-02 15:04:05.000"))
-		summary = append(summary, fmt.Sprintf("%s %s", timestamp, msg))
 		if m.filterEnabled {
-
+			msg = highlightOccurencesCaseInsensitive(msg, m.filterInput.Value())
 		}
+		summary = append(summary, fmt.Sprintf("%s %s", timestamp, msg))
 	}
 	content := strings.Join(summary, "\n")
 	m.eventsView.SetContent(content)
+}
+
+func highlightOccurencesCaseInsensitive(a, b string) string {
+	if b == "" {
+		return a
+	}
+
+	// Convert both strings to lower case for case-insensitive comparison
+	lowerA := strings.ToLower(a)
+	lowerB := strings.ToLower(b)
+
+	// Find all occurrences of b in a
+	var lastIndex int
+	var result strings.Builder
+	for {
+		index := strings.Index(lowerA[lastIndex:], lowerB)
+		if index == -1 {
+			break
+		}
+		// Append the original text plus the highlighted occurrence
+		result.WriteString(a[lastIndex : lastIndex+index])
+		result.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(a[lastIndex+index : lastIndex+index+len(b)]))
+		lastIndex += index + len(b)
+	}
+	// Append any remaining text after the last occurrence
+	result.WriteString(a[lastIndex:])
+
+	return result.String()
 }
 
 func (m Model) SetSize(width, height int) {
