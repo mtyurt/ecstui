@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"log"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -43,8 +45,10 @@ var (
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	foreground   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
-	subtle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
-	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).MarginTop(3).Align(lipgloss.Left)
+	subtle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).Align(lipgloss.Left)
+	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).AlignHorizontal(lipgloss.Right)
+	helpStyleKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9BCC")).Bold(true)
+	helpStyleVal = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 	minWidth     = 150
 	taskSetWidth = 32
 )
@@ -62,6 +66,7 @@ type Model struct {
 	Focused             bool
 	lastUpdateTime      time.Time
 	ecsStatusFetcher    func(string, string) (*types.ServiceStatus, error)
+	autoRefresh         bool
 }
 
 type errMsg struct{ err error }
@@ -111,7 +116,11 @@ func doTick() tea.Cmd {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchServiceStatus, m.spinner.SpinnerTick(), doTick())
+	cmd := []tea.Cmd{m.fetchServiceStatus, m.spinner.SpinnerTick()}
+	if m.autoRefresh {
+		cmd = append(cmd, doTick())
+	}
+	return tea.Batch(cmd...)
 }
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -132,23 +141,31 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyMsg:
 		log.Printf("servicedetail update key: %s\n", msg)
 		log.Println("servicedetail state: ", m.state)
-		k := msg.String()
-		if k == "ctrl+e" {
+		switch k := msg.String(); k {
+		case "ctrl+e":
 			eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
-
 			m.eventsViewport = &eventsViewport
-
 			m.state = eventsOnly
 			m.Focused = false
-		} else if k == "esc" && m.state != loaded && m.eventsViewport.Focused() {
-			m.state = loaded
-			m.Focused = true
-			m.eventsViewport = nil
+		case "ecs":
+			if m.state != loaded && m.eventsViewport.Focused() {
+				m.state = loaded
+				m.Focused = true
+				m.eventsViewport = nil
+			}
+		case "ctrl+t": // toggle auto refresh
+			m.autoRefresh = !m.autoRefresh
+			if m.autoRefresh && time.Now().Sub(m.lastUpdateTime) > time.Second*28 {
+				cmds = append(cmds, doTick())
+			}
+		case "ctrl+r": // refresh
+			cmds = append(cmds, m.fetchServiceStatus)
 		}
 	case TickMsg:
-		log.Println("servicedetail tick")
-		cmds = append(cmds, doTick(), m.fetchServiceStatus)
-
+		log.Println("servicedetail tick autoRefresh:", m.autoRefresh)
+		if m.autoRefresh {
+			cmds = append(cmds, doTick(), m.fetchServiceStatus)
+		}
 	default:
 		log.Printf("servicedetail update msg type: %v\n", msg)
 	}
@@ -249,13 +266,26 @@ func (m Model) renderLargeSection(title, content string) string {
 }
 
 func (m Model) footerView() string {
-	keyHelp := "ctrl+e: events"
-	lastUpdateTime := fmt.Sprintf("last update: %s", m.lastUpdateTime.Format("15:04:05.000"))
-	return helpStyle.Render(lipgloss.JoinHorizontal(lipgloss.Left,
-		keyHelp,
-		"\t\t",
-		lastUpdateTime,
-	))
+	refreshStatus := "enabled"
+	if !m.autoRefresh {
+		refreshStatus = "disabled"
+	}
+	help := map[string]string{
+		"ctrl+t": "auto refresh " + refreshStatus,
+		"ctrl+r": "manual refresh",
+		"ctrl+e": "events",
+		"esc":    "back",
+	}
+	fields := []string{}
+	for k, v := range help {
+		fields = append(fields, fmt.Sprintf("%s %s", helpStyleKey.Render(k), helpStyleVal.Render(v)))
+	}
+	slices.Sort(fields)
+
+	lastUpdate := fmt.Sprintf("last update: %s", m.lastUpdateTime.Format("15:04:05.000"))
+	style := helpStyle.Copy().Width(m.width - 30)
+
+	return (lipgloss.JoinVertical(lipgloss.Right, style.Render(strings.Join(fields, " • ")), style.Render(lastUpdate)))
 }
 func (m Model) sectionsView() string {
 	firstRow := lipgloss.JoinHorizontal(lipgloss.Center, m.taskView(), m.deploymentView())
