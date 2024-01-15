@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -44,13 +45,14 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	foreground   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
-	subtle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).Align(lipgloss.Left)
-	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).AlignHorizontal(lipgloss.Right)
-	helpStyleKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9BCC")).Bold(true)
-	helpStyleVal = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
-	minWidth     = 150
-	taskSetWidth = 32
+	foreground             = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#383838", Dark: "#D9DCCF"})
+	subtle                 = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).Align(lipgloss.Left)
+	helpStyle              = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B")).AlignHorizontal(lipgloss.Right)
+	helpStyleKey           = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9BCC")).Bold(true)
+	helpStyleVal           = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
+	lastUpdateSpinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	minWidth               = 150
+	taskSetWidth           = 32
 )
 
 type Model struct {
@@ -67,6 +69,8 @@ type Model struct {
 	lastUpdateTime      time.Time
 	ecsStatusFetcher    func(string, string) (*types.ServiceStatus, error)
 	autoRefresh         bool
+	footerSpinner       spinner.Model
+	showFooterSpinner   bool
 }
 
 type errMsg struct{ err error }
@@ -79,11 +83,13 @@ type TickMsg time.Time
 
 func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
 	return Model{cluster: cluster,
-		serviceArn:       serviceArn,
-		service:          service,
-		spinner:          spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		Focused:          true,
-		ecsStatusFetcher: ecsStatusFetcher,
+		serviceArn:        serviceArn,
+		service:           service,
+		spinner:           spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		Focused:           true,
+		ecsStatusFetcher:  ecsStatusFetcher,
+		footerSpinner:     spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(lastUpdateSpinnerStyle)),
+		showFooterSpinner: false,
 	}
 }
 
@@ -134,6 +140,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
 		m.state = loaded
+		m.showFooterSpinner = false
 	case errMsg:
 		log.Println("servicedetail error")
 		m.err = msg
@@ -155,17 +162,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			}
 		case "ctrl+t": // toggle auto refresh
 			m.autoRefresh = !m.autoRefresh
-			if m.autoRefresh && time.Now().Sub(m.lastUpdateTime) > time.Second*28 {
+			if m.autoRefresh {
 				cmds = append(cmds, doTick())
 			}
 		case "ctrl+r": // refresh
-			cmds = append(cmds, m.fetchServiceStatus)
+			m.showFooterSpinner = true
+			cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
 		}
 	case TickMsg:
 		log.Println("servicedetail tick autoRefresh:", m.autoRefresh)
-		if m.autoRefresh {
-			cmds = append(cmds, doTick(), m.fetchServiceStatus)
+		if m.autoRefresh && time.Now().Sub(m.lastUpdateTime) > time.Second*28 {
+			m.showFooterSpinner = true
+			cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
 		}
+		cmds = append(cmds, doTick())
 	default:
 		log.Printf("servicedetail update msg type: %v\n", msg)
 	}
@@ -185,11 +195,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.taskSetView = &taskSetView
 		cmds = append(cmds, cmd)
 	}
+	if m.showFooterSpinner {
+		m.footerSpinner, cmd = m.footerSpinner.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 	log.Println("servicedetail update returning", len(cmds), cmds)
 
 	return m, tea.Batch(cmds...)
 }
-
 func (m *Model) initializeSections() {
 	serviceStatus := *m.ecsStatus.Ecs
 
@@ -282,8 +295,12 @@ func (m Model) footerView() string {
 	}
 	slices.Sort(fields)
 
-	lastUpdate := fmt.Sprintf("last update: %s", m.lastUpdateTime.Format("15:04:05.000"))
+	lastUpdate := fmt.Sprintf("%s: %s", helpStyleVal.Render("last update"), helpStyleKey.Render(m.lastUpdateTime.Format("15:04:05.000")))
+
 	style := helpStyle.Copy().Width(m.width - 30)
+	if m.showFooterSpinner {
+		lastUpdate = m.footerSpinner.View() + " " + lastUpdate
+	}
 
 	return (lipgloss.JoinVertical(lipgloss.Right, style.Render(strings.Join(fields, " • ")), style.Render(lastUpdate)))
 }
