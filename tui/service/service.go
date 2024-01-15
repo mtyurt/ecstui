@@ -147,7 +147,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.eventsViewport = &eventsViewport
 			m.state = eventsOnly
 			m.Focused = false
-		case "ecs":
+		case "esc":
 			if m.state != loaded && m.eventsViewport.Focused() {
 				m.state = loaded
 				m.Focused = true
