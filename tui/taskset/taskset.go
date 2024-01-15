@@ -2,6 +2,8 @@ package taskset
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
@@ -16,7 +18,7 @@ import (
 var (
 	styles = list.DefaultStyles()
 
-	taskSetWidth      = 32
+	taskSetWidth      = 35
 	smallSectionStyle = lipgloss.NewStyle().
 				Width(28).
 				Height(6).
@@ -31,7 +33,9 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	bold = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
+	bold      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
+	healthy   = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
+	unhealthy = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 )
 
 type Model struct {
@@ -48,17 +52,21 @@ func New(images map[string][]string, connections map[string][]types.LbConfig, ta
 		taskSetMap[*ts.Id] = *ts
 	}
 
-	return &Model{
+	m := &Model{
 		images:      images,
 		connections: connections,
 		tasks:       tasks,
 		taskSetMap:  taskSetMap,
-		width:       width,
-		height:      height,
 	}
+	m.SetSize(width, height)
+	return m
 }
 
 func (m *Model) SetSize(width, height int) {
+	if width%2 == 1 {
+		width = width - 1
+	}
+
 	m.width = width
 	m.height = height
 }
@@ -73,8 +81,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) View() string {
 	return m.renderLbConfigs(m.connections)
 }
+
+type taskSetView struct {
+	tsID string
+	view string
+}
+
 func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
-	viewByLb := make(map[string][]string)
+	viewByLb := make(map[string][]taskSetView)
 	cfgByTaskSet := make(map[string]*types.LbConfig)
 	for taskSetID, lbs := range lbConfig {
 		priority := ""
@@ -89,32 +103,50 @@ func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 			TGName:    lbs[0].TGName,
 			TGWeigth:  lbs[0].TGWeigth,
 			TaskSetID: taskSetID,
+			TGHealth:  lbs[0].TGHealth,
 		}
 	}
 
-	unattachedTaskSets := []string{}
+	unattachedTaskSets := []taskSetView{}
 	for _, lb := range cfgByTaskSet {
 
 		if lb.LBName != "" {
+			view := m.renderTaskSetThroughLb(*lb)
+
 			if _, ok := viewByLb[lb.LBName]; !ok {
-				viewByLb[lb.LBName] = []string{m.renderTaskSetThroughLb(*lb)}
+				viewByLb[lb.LBName] = []taskSetView{{tsID: lb.TaskSetID, view: view}}
 			} else {
-				viewByLb[lb.LBName] = append(viewByLb[lb.LBName], m.renderTaskSetThroughLb(*lb))
+				viewByLb[lb.LBName] = append(viewByLb[lb.LBName], taskSetView{tsID: lb.TaskSetID, view: view})
 			}
 		} else {
-			unattachedTaskSets = append(unattachedTaskSets, m.renderUnattachedTaskSet(*lb))
+			view := m.renderUnattachedTaskSet(*lb)
+			unattachedTaskSets = append(unattachedTaskSets, taskSetView{tsID: lb.TaskSetID, view: view})
+		}
+	}
+	lbViews := make(map[string]string)
+	for lbName, lbTaskSets := range viewByLb {
+		bottom := smallSectionStyle.Copy().Width(len(lbTaskSets)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
+		slices.SortFunc(lbTaskSets, func(i, j taskSetView) int {
+			return strings.Compare(i.tsID, j.tsID)
+		})
+
+		viewStrings := []string{}
+		for _, lbView := range lbTaskSets {
+			viewStrings = append(viewStrings, lbView.view)
 		}
 
+		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Top, viewStrings...), bottom)
+		lbViews[lbName] = tgView
 	}
 	lbs := make([]string, 0, len(viewByLb))
-	for lbName, lbViews := range viewByLb {
-		bottom := smallSectionStyle.Copy().Width(len(lbViews)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
-		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Center, lbViews...), bottom)
-		lbs = append(lbs, tgView)
+	for _, lb := range lbViews {
+		lbs = append(lbs, lb)
 	}
-	lbs = append(lbs, unattachedTaskSets...)
+	for _, unattachedTaskSet := range unattachedTaskSets {
+		lbs = append(lbs, unattachedTaskSet.view)
+	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, lbs...)
+	return lipgloss.NewStyle().Width(m.width).AlignHorizontal(lipgloss.Center).AlignVertical(lipgloss.Top).Render(lipgloss.JoinHorizontal(lipgloss.Right, lbs...))
 }
 
 func truncateTo(s string, max int) string {
@@ -125,7 +157,6 @@ func truncateTo(s string, max int) string {
 }
 
 func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
-	sectionWidth := taskSetWidth
 	ts := m.taskSetMap[lbConfig.TaskSetID]
 	attachmentTemplate := `▲
 |
@@ -134,7 +165,7 @@ func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
 %s
 priority: %s`
 
-	attachment := fmt.Sprintf(attachmentTemplate, lbConfig.TGWeigth, truncateTo(lbConfig.TGName, sectionWidth), lbConfig.Priority)
+	attachment := fmt.Sprintf(attachmentTemplate, lbConfig.TGWeigth, getTGNameAndHealth(lbConfig), lbConfig.Priority)
 	return m.renderTaskSetWithAttachment(ts, attachment)
 }
 
@@ -149,11 +180,39 @@ func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
 
 `
 
-	attachment := fmt.Sprintf(attachmentTemplate, truncateTo(lbConfig.TGName, taskSetWidth))
+	attachment := fmt.Sprintf(attachmentTemplate, getTGNameAndHealth(lbConfig))
 
 	return m.renderTaskSetWithAttachment(ts, attachment)
 }
 
+func getTGNameAndHealth(lbConfig types.LbConfig) string {
+	tgName := truncateTo(lbConfig.TGName, taskSetWidth)
+
+	healths := []string{}
+	azByState := make(map[string]string)
+	states := []string{}
+
+	for _, health := range lbConfig.TGHealth {
+		az := *health.Target.AvailabilityZone
+		state := *health.TargetHealth.State
+		if _, ok := azByState[state]; !ok {
+			azByState[state] = utils.GetLastItemAfterSplit(az, "-")
+			states = append(states, state)
+		} else {
+			azByState[state] = azByState[state] + "," + utils.GetLastItemAfterSplit(az, "-")
+		}
+	}
+	slices.Sort(states)
+	for _, state := range states {
+		style := unhealthy
+		if state == "healthy" {
+			style = healthy
+		}
+		healths = append(healths, style.Render(fmt.Sprintf("%s: %s", state, azByState[state])))
+	}
+	return tgName + "\n" + strings.Join(healths, " ")
+
+}
 func (m Model) renderTaskSetWithAttachment(ts ecs.TaskSet, attachment string) string {
 	content := m.renderTaskSetDetails(ts)
 

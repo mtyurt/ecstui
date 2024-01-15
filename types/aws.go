@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/aws/aws-sdk-go/service/ecs"
+	"github.com/aws/aws-sdk-go/service/elbv2"
 )
 
 type ServiceScale struct {
@@ -16,6 +17,7 @@ type LbConfig struct {
 	TGWeigth     int64
 	ListenerPort int64
 	Priority     string
+	TGHealth     []*elbv2.TargetHealthDescription
 }
 type ServiceStatus struct {
 	Ecs                *ecs.Service

@@ -51,7 +51,7 @@ var (
 	helpStyleKey           = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9BCC")).Bold(true)
 	helpStyleVal           = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 	lastUpdateSpinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-	minWidth               = 150
+	minWidth               = 120
 	taskSetWidth           = 32
 )
 
@@ -111,7 +111,10 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	if m.eventsViewport != nil {
-		m.eventsViewport.SetSize(width, height-1)
+		m.eventsViewport.SetSize(width, 0)
+	}
+	if m.taskSetView != nil {
+		m.taskSetView.SetSize(width-19, 0)
 	}
 }
 
@@ -208,7 +211,7 @@ func (m *Model) initializeSections() {
 
 	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
 		status := m.ecsStatus
-		m.taskSetView = taskset.New(status.TaskSetImages, status.TaskSetConnections, status.TaskSetTasks, status.Ecs.TaskSets, m.width, m.height)
+		m.taskSetView = taskset.New(status.TaskSetImages, status.TaskSetConnections, status.TaskSetTasks, status.Ecs.TaskSets, m.width-19, m.height)
 	}
 }
 
@@ -275,7 +278,7 @@ func (m Model) renderSmallSection(title, content string) string {
 	return smallSectionStyle.Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
 }
 func (m Model) renderLargeSection(title, content string) string {
-	return largeSectionStyle.Copy().Width(m.width - 19).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(title) + "\n\n" + content + "\n")
+	return largeSectionStyle.Copy().Width(m.width - 19).Render(lipgloss.JoinVertical(lipgloss.Left, styles.Title.AlignHorizontal(lipgloss.Center).Render(title), content))
 }
 
 func (m Model) footerView() string {
@@ -322,7 +325,7 @@ func (m Model) sectionsView() string {
 
 	return lipgloss.NewStyle().
 		Width(m.width).Height(m.height).
-		AlignHorizontal(lipgloss.Center).Render(view)
+		AlignHorizontal(lipgloss.Center).AlignVertical(lipgloss.Top).Render(view)
 }
 
 func (m Model) View() string {

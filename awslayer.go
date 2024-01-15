@@ -213,6 +213,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 	var lbConfigs []types.LbConfig
 	found := false
 	shortTgName := utils.GetLastItemAfterSplit(targetGroupArn, "targetgroup/")
+	tgHealthCache := make(map[string][]*elbv2.TargetHealthDescription)
 	for _, lb := range lbResp.LoadBalancers {
 		// Describe the listeners to find associated target groups
 		listenerResp, err := a.elbv2.DescribeListeners(&elbv2.DescribeListenersInput{
@@ -241,24 +242,34 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
 						if action.TargetGroupArn != nil && *action.TargetGroupArn == targetGroupArn {
+							tgHealth, err := a.getTGHealth(tgHealthCache, targetGroupArn)
+							if err != nil {
+								return nil, err
+							}
 							lbConfigs = append(lbConfigs, types.LbConfig{
 								LBName:    *lb.LoadBalancerName,
 								TGName:    shortTgName,
 								TGWeigth:  *action.ForwardConfig.TargetGroups[0].Weight,
 								TaskSetID: taskSetID,
 								Priority:  *rule.Priority,
+								TGHealth:  tgHealth,
 							})
 							found = true
 						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
 							for _, tg := range action.ForwardConfig.TargetGroups {
 								if *tg.TargetGroupArn == targetGroupArn {
 									log.Println("found target group in forward config", *action.ForwardConfig)
+									tgHealth, err := a.getTGHealth(tgHealthCache, targetGroupArn)
+									if err != nil {
+										return nil, err
+									}
 									lbConfigs = append(lbConfigs, types.LbConfig{
 										LBName:    *lb.LoadBalancerName,
 										TGName:    shortTgName,
 										TGWeigth:  *tg.Weight,
 										TaskSetID: taskSetID,
 										Priority:  *rule.Priority,
+										TGHealth:  tgHealth,
 									})
 									found = true
 								}
@@ -271,11 +282,31 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 	}
 
 	if !found {
+		tgHealth, err := a.getTGHealth(tgHealthCache, targetGroupArn)
+		if err != nil {
+			return nil, err
+		}
 		lbConfigs = append(lbConfigs, types.LbConfig{
 			TGName:    shortTgName,
 			TaskSetID: taskSetID,
+			TGHealth:  tgHealth,
 		})
 	}
 
 	return lbConfigs, nil
+}
+
+func (a *AWSInteractionLayer) getTGHealth(cache map[string][]*elbv2.TargetHealthDescription, tgArn string) ([]*elbv2.TargetHealthDescription, error) {
+	if health, ok := cache[tgArn]; ok {
+		return health, nil
+	}
+	resp, err := a.elbv2.DescribeTargetHealth(&elbv2.DescribeTargetHealthInput{
+		TargetGroupArn: aws.String(tgArn),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	cache[tgArn] = resp.TargetHealthDescriptions
+	return resp.TargetHealthDescriptions, nil
 }
