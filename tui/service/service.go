@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mtyurt/ecstui/logger"
 	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/tui/events"
 	"github.com/mtyurt/ecstui/tui/taskset"
@@ -94,8 +94,8 @@ func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, stri
 }
 
 func (m Model) fetchServiceStatus() tea.Msg {
-	log.Println("started fetching service status")
-	defer log.Println("finished fetching service status")
+	logger.Println("started fetching service status")
+	defer logger.Println("finished fetching service status")
 	serviceConfig, err := m.ecsStatusFetcher(m.cluster, m.service)
 	if err != nil {
 		return errMsg{err}
@@ -105,7 +105,7 @@ func (m Model) fetchServiceStatus() tea.Msg {
 }
 
 func (m *Model) SetSize(width, height int) {
-	log.Println("servicedetail setsize", width, height)
+	logger.Println("servicedetail setsize", width, height)
 	if width < minWidth {
 		width = minWidth
 	}
@@ -139,41 +139,45 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
-		log.Println("servicedetail loaded")
+		logger.Println("servicedetail loaded")
 		m.ecsStatus = msg
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
 		m.state = loaded
 		m.showFooterSpinner = false
 	case errMsg:
-		log.Println("servicedetail error")
+		logger.Println("servicedetail error")
 		m.err = msg
 		m.state = errorState
 	case tea.KeyMsg:
-		log.Printf("servicedetail update key: %s\n", msg)
-		switch k := msg.String(); k {
-		case "ctrl+e":
-			eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
-			m.eventsViewport = &eventsViewport
-			m.state = eventsOnly
-			m.Focused = false
-		case "esc":
-			if m.state != loaded && m.eventsViewport.Focused() {
+		logger.Printf("servicedetail update key: %s\n", msg)
+		if m.state == loaded {
+			switch k := msg.String(); k {
+			case "ctrl+e":
+				eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
+				m.eventsViewport = &eventsViewport
+				m.state = eventsOnly
+				m.Focused = false
+			case "ctrl+t": // toggle auto refresh
+				m.autoRefresh = !m.autoRefresh
+				if m.autoRefresh {
+					cmds = append(cmds, doTick())
+				}
+			case "ctrl+r": // refresh
+				m.showFooterSpinner = true
+				cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
+			}
+
+		} else {
+			if k := msg.String(); k == "esc" && m.state == eventsOnly && m.eventsViewport.Focused() {
 				m.state = loaded
 				m.Focused = true
 				m.eventsViewport = nil
 			}
-		case "ctrl+t": // toggle auto refresh
-			m.autoRefresh = !m.autoRefresh
-			if m.autoRefresh {
-				cmds = append(cmds, doTick())
-			}
-		case "ctrl+r": // refresh
-			m.showFooterSpinner = true
-			cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
 		}
+
 	case TickMsg:
-		log.Println("servicedetail tick autoRefresh:", m.autoRefresh)
+		logger.Println("servicedetail tick autoRefresh:", m.autoRefresh)
 		if m.autoRefresh && time.Now().Sub(m.lastUpdateTime) > time.Second*28 {
 			m.showFooterSpinner = true
 			cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)

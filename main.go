@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
+	"github.com/mtyurt/ecstui/logger"
 	"github.com/mtyurt/ecstui/spinnertui"
 	listtui "github.com/mtyurt/ecstui/tui/list"
 	servicetui "github.com/mtyurt/ecstui/tui/service"
@@ -29,7 +29,6 @@ type mainModel struct {
 	initialCall   func() tea.Msg
 	err           error
 	awsLayer      *AWSInteractionLayer
-	logFile       *os.File
 	width, height int
 }
 
@@ -42,7 +41,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	newServiceDetail := false
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		log.Printf("keymsg: %v\n", msg)
+		logger.Printf("keymsg: %v\n", msg)
 		if m.state == fatalError {
 			return m, tea.Quit
 		}
@@ -61,12 +60,11 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.serviceDetail.Init())
 			newServiceDetail = true
 		} else if m.state == detailView && k == "esc" && m.serviceDetail != nil && m.serviceDetail.Focused {
-			log.Println("esc pressed, unfocusing service detail", m.serviceDetail.Focused)
+			logger.Println("esc pressed, unfocusing service detail", m.serviceDetail.Focused)
 			m.state = listView
 			m.serviceDetail = nil
 		}
 	case tea.WindowSizeMsg:
-		log.Printf("windowsizemsg: %v\n", msg)
 		m.width = msg.Width
 		m.height = msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
@@ -76,7 +74,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case serviceListMsg:
 		m.list.SetItems(msg)
-		log.Println("serviceListMsg, setting state to list")
+		logger.Println("serviceListMsg, setting state to list")
 		m.state = listView
 	case errMsg:
 		m.err = msg
@@ -93,7 +91,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
 	case detailView:
-		// log.Printf("update detailview with %v\n", msg)
 		if !newServiceDetail {
 			serviceDetail, cmd := m.serviceDetail.Update(msg)
 			m.serviceDetail = &serviceDetail
@@ -124,12 +121,11 @@ type errMsg struct{ err error }
 
 func (e errMsg) Error() string { return e.err.Error() }
 
-func newModel(logFile *os.File, initialCall func() tea.Msg, awsLayer *AWSInteractionLayer) mainModel {
+func newModel(initialCall func() tea.Msg, awsLayer *AWSInteractionLayer) mainModel {
 	return mainModel{spinner: spinnertui.New("Loading Services..."),
 		list:        listtui.New(),
 		state:       initialLoad,
 		initialCall: initialCall,
-		logFile:     logFile,
 		awsLayer:    awsLayer,
 	}
 
@@ -139,7 +135,7 @@ func main() {
 	initialCall := func() tea.Msg {
 		services, err := awsLayer.FetchServiceList()
 		if err != nil {
-			log.Println("error fetching service list")
+			logger.Println("error fetching service list")
 			return errMsg{err}
 		}
 		items := make([]listtui.ListItem, len(services))
@@ -149,10 +145,12 @@ func main() {
 		return serviceListMsg(items)
 	}
 
-	f, _ := tea.LogToFile("log.txt", "debug")
-	defer f.Close()
-	m := newModel(f, initialCall, awsLayer)
-	log.SetOutput(f)
+	m := newModel(initialCall, awsLayer)
+	if os.Getenv("DEBUG") == "true" {
+		f, _ := tea.LogToFile("log.txt", "debug")
+		logger.Initialize(f)
+		defer f.Close()
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

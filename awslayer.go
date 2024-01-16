@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	autoscaling "github.com/aws/aws-sdk-go/service/applicationautoscaling"
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/aws/aws-sdk-go/service/elbv2"
+	"github.com/mtyurt/ecstui/logger"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
 )
@@ -106,7 +106,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		Services: []*string{&service},
 	}
 
-	log.Printf("fetching service status with input %v\n", input)
+	logger.Printf("fetching service status with input %v\n", input)
 	result, err := a.ecs.DescribeServices(input)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 		ResourceIds:      []*string{&resourceID},
 	})
 	if err != nil {
-		log.Printf("failed to describe scalable targets: %v\n", err)
+		logger.Printf("failed to describe scalable targets: %v\n", err)
 		return nil, err
 	}
 	if len(targets.ScalableTargets) > 0 {
@@ -139,7 +139,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 	if result.Services[0].TaskDefinition != nil {
 		response.Images, err = a.GetImagesInTaskDefinition(*result.Services[0].TaskDefinition)
 		if err != nil {
-			log.Printf("failed to get images in task definition: %v\n", err)
+			logger.Printf("failed to get images in task definition: %v\n", err)
 			return nil, err
 		}
 	}
@@ -153,7 +153,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 				for _, lb := range ts.LoadBalancers {
 					lbConfig, err := a.findLoadBalancersForTargetGroup(*ts.Id, *lb.TargetGroupArn)
 					if err != nil {
-						log.Printf("failed to find load balancers for target group: %v\n", err)
+						logger.Printf("failed to find load balancers for target group: %v\n", err)
 						return nil, err
 					}
 					lbConfigs = append(lbConfigs, lbConfig...)
@@ -163,14 +163,14 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 			if ts.TaskDefinition != nil {
 				response.TaskSetImages[*ts.Id], err = a.GetImagesInTaskDefinition(*ts.TaskDefinition)
 				if err != nil {
-					log.Printf("failed to get images in task definition: %v\n", err)
+					logger.Printf("failed to get images in task definition: %v\n", err)
 					return nil, err
 				}
 			}
 
 			tasks, err := a.findTasksForTaskSet(cluster, service, *ts.Id)
 			if err != nil {
-				log.Printf("failed to find tasks for task set[%s]: %v\n", *ts.Id, err)
+				logger.Printf("failed to find tasks for task set[%s]: %v\n", *ts.Id, err)
 				return nil, err
 			}
 			response.TaskSetTasks[*ts.Id] = tasks
@@ -181,7 +181,7 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 }
 
 func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID string) ([]*ecs.Task, error) {
-	log.Println("finding tasks for task set", cluster, service, taskSetID)
+	logger.Println("finding tasks for task set", cluster, service, taskSetID)
 	listResp, err := a.ecs.ListTasks(&ecs.ListTasksInput{
 		Cluster:   aws.String(cluster),
 		StartedBy: aws.String(taskSetID),
@@ -190,7 +190,7 @@ func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID st
 		return nil, err
 	}
 	if len(listResp.TaskArns) == 0 {
-		log.Println("no tasks found for task set", taskSetID)
+		logger.Println("no tasks found for task set", taskSetID)
 		return []*ecs.Task{}, nil
 	}
 	taskResp, err := a.ecs.DescribeTasks(&ecs.DescribeTasksInput{
@@ -258,7 +258,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 						} else if action.ForwardConfig != nil && action.ForwardConfig.TargetGroups != nil {
 							for _, tg := range action.ForwardConfig.TargetGroups {
 								if *tg.TargetGroupArn == targetGroupArn {
-									log.Println("found target group in forward config", *action.ForwardConfig)
+									logger.Println("found target group in forward config", *action.ForwardConfig)
 									tgHealth, err := a.getTGHealth(tgHealthCache, targetGroupArn)
 									if err != nil {
 										return nil, err
