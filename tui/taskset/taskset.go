@@ -35,7 +35,7 @@ var (
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	bold      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
 	healthy   = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
-	unhealthy = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	unhealthy = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
 )
 
 type Model struct {

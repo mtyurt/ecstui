@@ -324,21 +324,33 @@ func (m Model) sectionsView() string {
 	view := lipgloss.JoinVertical(lipgloss.Center, rows...)
 
 	return lipgloss.NewStyle().
-		Width(m.width).Height(m.height).
+		Width(m.width).Height(m.height - 2).
 		AlignHorizontal(lipgloss.Center).AlignVertical(lipgloss.Top).Render(view)
 }
 
 func (m Model) View() string {
+	serviceName := foreground.Copy().
+		Bold(true).
+		Margin(0, 4, 0, 2).
+		// Foreground(lipgloss.Color("#FAFAFA")).
+		Background(lipgloss.Color("#7D56F4")).
+		AlignHorizontal(lipgloss.Center).
+		Width(m.width).
+		Render(m.service)
+
+	view := ""
 	switch m.state {
 	case initial:
-		return m.spinner.View()
+		view = view + m.spinner.View()
 	case loaded:
-		return m.sectionsView()
+		view = view + m.sectionsView()
 	case errorState:
-		return m.err.Error()
+		view = view + m.err.Error()
 	case eventsOnly:
-		return m.eventsViewport.View()
+		view = view + m.eventsViewport.View()
 	default:
-		return m.serviceArn
+		view = view + m.serviceArn
 	}
+
+	return serviceName + "\n" + view
 }
