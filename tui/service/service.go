@@ -105,6 +105,7 @@ func (m Model) fetchServiceStatus() tea.Msg {
 }
 
 func (m *Model) SetSize(width, height int) {
+	log.Println("servicedetail setsize", width, height)
 	if width < minWidth {
 		width = minWidth
 	}
@@ -150,7 +151,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.state = errorState
 	case tea.KeyMsg:
 		log.Printf("servicedetail update key: %s\n", msg)
-		log.Println("servicedetail state: ", m.state)
 		switch k := msg.String(); k {
 		case "ctrl+e":
 			eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
@@ -179,8 +179,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
 		}
 		cmds = append(cmds, doTick())
-	default:
-		log.Printf("servicedetail update msg type: %v\n", msg)
 	}
 
 	switch m.state {
@@ -188,7 +186,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 	case eventsOnly:
-		log.Println("servicedetail eventsOnly update with msg")
 		eventsViewport, cmd := m.eventsViewport.Update(msg)
 		m.eventsViewport = &eventsViewport
 		cmds = append(cmds, cmd)
@@ -202,7 +199,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.footerSpinner, cmd = m.footerSpinner.Update(msg)
 		cmds = append(cmds, cmd)
 	}
-	log.Println("servicedetail update returning", len(cmds), cmds)
 
 	return m, tea.Batch(cmds...)
 }
@@ -331,8 +327,7 @@ func (m Model) sectionsView() string {
 func (m Model) View() string {
 	serviceName := foreground.Copy().
 		Bold(true).
-		Margin(0, 4, 0, 2).
-		// Foreground(lipgloss.Color("#FAFAFA")).
+		Margin(0, 2, 0, 2).
 		Background(lipgloss.Color("#7D56F4")).
 		AlignHorizontal(lipgloss.Center).
 		Width(m.width).

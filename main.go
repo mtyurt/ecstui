@@ -66,6 +66,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.serviceDetail = nil
 		}
 	case tea.WindowSizeMsg:
+		log.Printf("windowsizemsg: %v\n", msg)
+		m.width = msg.Width
+		m.height = msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
 		if m.serviceDetail != nil {
 			m.serviceDetail.SetSize(msg.Width, msg.Height)
@@ -90,7 +93,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		cmds = append(cmds, cmd)
 	case detailView:
-		log.Printf("update detailview with %v\n", msg)
+		// log.Printf("update detailview with %v\n", msg)
 		if !newServiceDetail {
 			serviceDetail, cmd := m.serviceDetail.Update(msg)
 			m.serviceDetail = &serviceDetail
