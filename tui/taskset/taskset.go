@@ -135,7 +135,7 @@ func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 			viewStrings = append(viewStrings, lbView.view)
 		}
 
-		tgView := lipgloss.JoinVertical(lipgloss.Center, lipgloss.JoinHorizontal(lipgloss.Top, viewStrings...), bottom)
+		tgView := lipgloss.JoinVertical(lipgloss.Top, lipgloss.JoinHorizontal(lipgloss.Top, viewStrings...), bottom)
 		lbViews[lbName] = tgView
 	}
 	lbs := make([]string, 0, len(viewByLb))
