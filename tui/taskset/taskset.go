@@ -275,6 +275,7 @@ func getTGNameAndHealth(connConfig types.ConnectionConfig) string {
 		if state == "healthy" {
 			style = healthy
 		}
+		slices.Sort(azByState[state])
 		healths = append(healths, style.Render(fmt.Sprintf("%s: %s", state, strings.Join(azByState[state], ", "))))
 	}
 	return tgName + "\n" + strings.Join(healths, " ")
