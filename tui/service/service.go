@@ -152,7 +152,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.ecsStatus = msg
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
-		if m.taskSetView != nil {
+		if m.state == loaded && m.taskSetView != nil { // if it's already loaded, we don't need to recreate the tasksetview
+			logger.Println("servicedetail update tasksetview")
+			taskSetView, cmd := m.taskSetView.Refresh()
+			m.taskSetView = &taskSetView
+			cmds = append(cmds, cmd)
+		} else if m.taskSetView != nil { // fresh taskset
 			cmd = m.taskSetView.Init()
 			cmds = append(cmds, cmd)
 		}
@@ -224,7 +229,9 @@ func (m *Model) initializeSections() {
 
 	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
 		status := m.ecsStatus
-		m.taskSetView = taskset.New(m.fetchTaskSetStatus(), status.Ecs.TaskSets, m.width-19, m.height)
+		if m.taskSetView == nil {
+			m.taskSetView = taskset.New(m.fetchTaskSetStatus(), status.Ecs.TaskSets, m.width-19, m.height)
+		}
 	}
 }
 

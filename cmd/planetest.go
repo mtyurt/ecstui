@@ -141,14 +141,7 @@ func main() {
 	// 	},
 	// }
 
-	status.Images = []string{"api-kt:123abc4e", "datadog-agent:7.49.0"}
-
-	status.TaskSetImages = map[string][]string{
-		"ecs-svc/3517849243791983451": {"api-kt:def679ac", "datadog-agent:7.49.0"},
-		"ecs-svc/8895224990753999325": {"api-kt:123abc4e", "datadog-agent:7.49.0"},
-	}
-
-	m := servicetui.New("test-cluster", "test-service", "service-arn", nil)
+	m := servicetui.New("test-cluster", "test-service", "service-arn", nil, nil)
 
 	m.TestUpdate(&status)
 

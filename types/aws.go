@@ -20,12 +20,9 @@ type ConnectionConfig struct {
 	TGHealth     []*elbv2.TargetHealthDescription
 }
 type ServiceStatus struct {
-	Ecs                *ecs.Service
-	Asg                ServiceScale
-	Images             []string
-	TaskSetImages      map[string][]string
-	TaskSetConnections map[string][]ConnectionConfig
-	TaskSetTasks       map[string][]*ecs.Task
+	Ecs    *ecs.Service
+	Asg    ServiceScale
+	Images []string
 }
 
 type TaskSetStatus struct {

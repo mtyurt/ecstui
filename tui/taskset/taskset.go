@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,11 +36,11 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	bold        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
-	healthy     = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
-	unhealthy   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
-	tgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")) // Amber
-
+	bold                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
+	healthy             = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
+	unhealthy           = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
+	tgNameStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")) // Amber
+	refreshSpinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 )
 
 type sessionState int
@@ -51,16 +52,18 @@ const (
 )
 
 type Model struct {
-	images        map[string][]string
-	connections   map[string][]types.ConnectionConfig
-	tasks         map[string][]*ecs.Task
-	taskSetMap    map[string]ecs.TaskSet
-	taskSets      []*ecs.TaskSet
-	statusFetcher StatusFetcher
-	width, height int
-	state         sessionState
-	err           error
-	spinner       spinnertui.Model
+	images             map[string][]string
+	connections        map[string][]types.ConnectionConfig
+	tasks              map[string][]*ecs.Task
+	taskSetMap         map[string]ecs.TaskSet
+	taskSets           []*ecs.TaskSet
+	statusFetcher      StatusFetcher
+	width, height      int
+	state              sessionState
+	err                error
+	spinner            spinnertui.Model
+	refreshSpinner     spinner.Model
+	showRefreshSpinner bool
 }
 
 type StatusFetcher func(taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error)
@@ -70,6 +73,7 @@ type errMsg struct{ err error }
 func (e errMsg) Error() string { return e.err.Error() }
 
 type StatusMsg *types.TaskSetStatus
+type RefreshMsg struct{}
 
 func New(statusFetcher StatusFetcher, taskSets []*ecs.TaskSet, width, height int) *Model {
 	taskSetMap := make(map[string]ecs.TaskSet)
@@ -78,11 +82,13 @@ func New(statusFetcher StatusFetcher, taskSets []*ecs.TaskSet, width, height int
 	}
 
 	m := &Model{
-		taskSets:      taskSets,
-		taskSetMap:    taskSetMap,
-		statusFetcher: statusFetcher,
-		state:         initial,
-		spinner:       spinnertui.New("Loading tasksets"),
+		taskSets:           taskSets,
+		taskSetMap:         taskSetMap,
+		statusFetcher:      statusFetcher,
+		state:              initial,
+		spinner:            spinnertui.New("Loading tasksets"),
+		refreshSpinner:     spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(refreshSpinnerStyle)),
+		showRefreshSpinner: false,
 	}
 	m.SetSize(width, height)
 	return m
@@ -105,30 +111,44 @@ func (m Model) fetchStatus() tea.Msg {
 		return errMsg{err}
 	}
 	return StatusMsg(taskSetStatus)
-
 }
+
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.fetchStatus, m.spinner.SpinnerTick())
 }
 
+func (m Model) Refresh() (Model, tea.Cmd) {
+	logger.Println("refreshing taskset status")
+	m.showRefreshSpinner = true
+	return m, tea.Batch(m.fetchStatus, m.refreshSpinner.Tick)
+
+}
+
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	logger.Printf("taskset update %v\n", msg)
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case StatusMsg:
+		logger.Println("taskset status fetched")
 		m.images = msg.TaskSetImages
 		m.connections = msg.TaskSetConnections
 		m.tasks = msg.TaskSetTasks
 		m.state = loaded
+		m.showRefreshSpinner = false
 	case errMsg:
 		m.err = msg.err
 		m.state = failed
+	default:
+		logger.Printf("taskset update %v\n", msg)
 	}
 
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
 	switch m.state {
 	case initial:
 		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	if m.showRefreshSpinner {
+		m.refreshSpinner, cmd = m.refreshSpinner.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
@@ -308,8 +328,14 @@ func (m Model) renderTaskSetDetails(ts ecs.TaskSet) string {
 		table.WithStyles(tableStyles),
 	)
 
+	title := styles.Title.Copy().Padding(0).MarginBottom(0).Render(truncateTo(*ts.Id, taskSetWidth-2))
+	if m.showRefreshSpinner {
+		space := taskSetWidth - lipgloss.Width(title) - lipgloss.Width(m.refreshSpinner.View())
+		title = title + strings.Repeat(" ", space) + m.refreshSpinner.View()
+	}
+	title = title + "\n"
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		styles.Title.Copy().Padding(0).MarginBottom(1).Render(truncateTo(*ts.Id, taskSetWidth)),
+		title,
 		"created "+humanizer.Time(taskCreation),
 		fmt.Sprintf("%s: %s", bold.Render("status"), status),
 		fmt.Sprintf("%s: %s", bold.Render("steady"), *ts.StabilityStatus),
