@@ -155,15 +155,15 @@ func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 	viewByLb := make(map[string][]taskSetView)
 	cfgByTaskSet := make(map[string]*types.LbConfig)
 	for taskSetID, lbs := range lbConfig {
-		priority := ""
+		priorities := []string{}
 		for _, lb := range lbs {
 			if lb.LBName != "" && lb.Priority != "" {
-				priority = lb.Priority
+				priorities = append(priorities, lb.Priority)
 			}
 		}
 		cfgByTaskSet[taskSetID] = &types.LbConfig{
 			LBName:    lbs[0].LBName,
-			Priority:  priority,
+			Priority:  strings.Join(priorities, ","),
 			TGName:    lbs[0].TGName,
 			TGWeigth:  lbs[0].TGWeigth,
 			TaskSetID: taskSetID,
