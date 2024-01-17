@@ -74,6 +74,7 @@ func (a *AWSInteractionLayer) FetchServiceList() ([]ECSService, error) {
 			itemList = append(itemList, ECSService{
 				Service: utils.GetLastItemAfterSplit(*service, "/"),
 				Cluster: utils.GetLastItemAfterSplit(*cluster, "/"),
+				Arn:     *service,
 			})
 		}
 	}

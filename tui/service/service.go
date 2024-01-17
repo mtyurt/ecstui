@@ -348,7 +348,7 @@ func (m Model) View() string {
 		Background(lipgloss.Color("#7D56F4")).
 		AlignHorizontal(lipgloss.Center).
 		Width(m.width).
-		Render(m.service)
+		Render(m.serviceArn)
 
 	view := ""
 	switch m.state {
