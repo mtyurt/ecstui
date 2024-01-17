@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/ecs"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,21 +57,22 @@ var (
 )
 
 type Model struct {
-	state               sessionState
-	cluster, serviceArn string
-	service             string
-	spinner             spinnertui.Model
-	ecsStatus           *types.ServiceStatus
-	err                 error
-	width, height       int
-	eventsViewport      *events.Model
-	taskSetView         *taskset.Model
-	Focused             bool
-	lastUpdateTime      time.Time
-	ecsStatusFetcher    func(string, string) (*types.ServiceStatus, error)
-	autoRefresh         bool
-	footerSpinner       spinner.Model
-	showFooterSpinner   bool
+	state                sessionState
+	cluster, serviceArn  string
+	service              string
+	spinner              spinnertui.Model
+	ecsStatus            *types.ServiceStatus
+	err                  error
+	width, height        int
+	eventsViewport       *events.Model
+	taskSetView          *taskset.Model
+	Focused              bool
+	lastUpdateTime       time.Time
+	ecsStatusFetcher     func(string, string) (*types.ServiceStatus, error)
+	taskSetStatusFetcher types.TaskSetStatusFetcher
+	autoRefresh          bool
+	footerSpinner        spinner.Model
+	showFooterSpinner    bool
 }
 
 type errMsg struct{ err error }
@@ -81,15 +83,16 @@ type ServiceMsg *types.ServiceStatus
 
 type TickMsg time.Time
 
-func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error)) Model {
+func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error), taskSetStatusFetcher types.TaskSetStatusFetcher) Model {
 	return Model{cluster: cluster,
-		serviceArn:        serviceArn,
-		service:           service,
-		spinner:           spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		Focused:           true,
-		ecsStatusFetcher:  ecsStatusFetcher,
-		footerSpinner:     spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(lastUpdateSpinnerStyle)),
-		showFooterSpinner: false,
+		serviceArn:           serviceArn,
+		service:              service,
+		spinner:              spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		Focused:              true,
+		ecsStatusFetcher:     ecsStatusFetcher,
+		taskSetStatusFetcher: taskSetStatusFetcher,
+		footerSpinner:        spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(lastUpdateSpinnerStyle)),
+		showFooterSpinner:    false,
 	}
 }
 
@@ -102,6 +105,12 @@ func (m Model) fetchServiceStatus() tea.Msg {
 	}
 	return ServiceMsg(serviceConfig)
 
+}
+
+func (m Model) fetchTaskSetStatus() taskset.StatusFetcher {
+	return func(taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error) {
+		return m.taskSetStatusFetcher(m.cluster, m.service, taskSets)
+	}
 }
 
 func (m *Model) SetSize(width, height int) {
@@ -143,6 +152,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.ecsStatus = msg
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
+		if m.taskSetView != nil {
+			cmd = m.taskSetView.Init()
+			cmds = append(cmds, cmd)
+		}
 		m.state = loaded
 		m.showFooterSpinner = false
 	case errMsg:
@@ -211,7 +224,7 @@ func (m *Model) initializeSections() {
 
 	if serviceStatus.TaskSets != nil && len(serviceStatus.TaskSets) > 0 {
 		status := m.ecsStatus
-		m.taskSetView = taskset.New(status.TaskSetImages, status.TaskSetConnections, status.TaskSetTasks, status.Ecs.TaskSets, m.width-19, m.height)
+		m.taskSetView = taskset.New(m.fetchTaskSetStatus(), status.Ecs.TaskSets, m.width-19, m.height)
 	}
 }
 

@@ -143,11 +143,17 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 			return nil, err
 		}
 	}
+	return response, nil
+}
+
+func (a *AWSInteractionLayer) FetchTaskSetStatus(cluster, service string, taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error) {
+	response := &types.TaskSetStatus{}
 	response.TaskSetImages = make(map[string][]string)
 	response.TaskSetConnections = make(map[string][]types.LbConfig)
 	response.TaskSetTasks = make(map[string][]*ecs.Task)
-	if len(result.Services[0].TaskSets) > 0 {
-		for _, ts := range result.Services[0].TaskSets {
+	var err error
+	if len(taskSets) > 0 {
+		for _, ts := range taskSets {
 			if ts.LoadBalancers != nil && len(ts.LoadBalancers) > 0 {
 				lbConfigs := make([]types.LbConfig, 0)
 				for _, lb := range ts.LoadBalancers {

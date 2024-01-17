@@ -27,3 +27,11 @@ type ServiceStatus struct {
 	TaskSetConnections map[string][]LbConfig
 	TaskSetTasks       map[string][]*ecs.Task
 }
+
+type TaskSetStatus struct {
+	TaskSetImages      map[string][]string
+	TaskSetConnections map[string][]LbConfig
+	TaskSetTasks       map[string][]*ecs.Task
+}
+
+type TaskSetStatusFetcher func(cluster, service string, taskSets []*ecs.TaskSet) (*TaskSetStatus, error)

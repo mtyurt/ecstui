@@ -11,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	humanizer "github.com/dustin/go-humanize"
+	"github.com/mtyurt/ecstui/logger"
+	"github.com/mtyurt/ecstui/spinnertui"
 	"github.com/mtyurt/ecstui/types"
 	"github.com/mtyurt/ecstui/utils"
 )
@@ -38,25 +40,47 @@ var (
 	unhealthy = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
 )
 
+type sessionState int
+
+const (
+	initial sessionState = iota
+	loaded
+	failed
+)
+
 type Model struct {
 	images        map[string][]string
 	connections   map[string][]types.LbConfig
 	tasks         map[string][]*ecs.Task
 	taskSetMap    map[string]ecs.TaskSet
+	taskSets      []*ecs.TaskSet
+	statusFetcher StatusFetcher
 	width, height int
+	state         sessionState
+	err           error
+	spinner       spinnertui.Model
 }
 
-func New(images map[string][]string, connections map[string][]types.LbConfig, tasks map[string][]*ecs.Task, taskSets []*ecs.TaskSet, width, height int) *Model {
+type StatusFetcher func(taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error)
+
+type errMsg struct{ err error }
+
+func (e errMsg) Error() string { return e.err.Error() }
+
+type StatusMsg *types.TaskSetStatus
+
+func New(statusFetcher StatusFetcher, taskSets []*ecs.TaskSet, width, height int) *Model {
 	taskSetMap := make(map[string]ecs.TaskSet)
 	for _, ts := range taskSets {
 		taskSetMap[*ts.Id] = *ts
 	}
 
 	m := &Model{
-		images:      images,
-		connections: connections,
-		tasks:       tasks,
-		taskSetMap:  taskSetMap,
+		taskSets:      taskSets,
+		taskSetMap:    taskSetMap,
+		statusFetcher: statusFetcher,
+		state:         initial,
+		spinner:       spinnertui.New("Loading tasksets"),
 	}
 	m.SetSize(width, height)
 	return m
@@ -70,16 +94,56 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 }
+
+func (m Model) fetchStatus() tea.Msg {
+	logger.Println("started fetching taskset status")
+	defer logger.Println("finished fetching taskset status")
+	taskSetStatus, err := m.statusFetcher(m.taskSets)
+	if err != nil {
+		return errMsg{err}
+	}
+	return StatusMsg(taskSetStatus)
+
+}
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.Batch(m.fetchStatus, m.spinner.SpinnerTick())
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	return m, nil
+	logger.Printf("taskset update %v\n", msg)
+	switch msg := msg.(type) {
+	case StatusMsg:
+		m.images = msg.TaskSetImages
+		m.connections = msg.TaskSetConnections
+		m.tasks = msg.TaskSetTasks
+		m.state = loaded
+	case errMsg:
+		m.err = msg.err
+		m.state = failed
+	}
+
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+	switch m.state {
+	case initial:
+		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() string {
-	return m.renderLbConfigs(m.connections)
+	switch m.state {
+	case initial:
+		return m.spinner.View()
+	case loaded:
+		return m.renderLbConfigs(m.connections)
+	case failed:
+		return m.err.Error()
+	default:
+		return m.spinner.View()
+
+	}
 }
 
 type taskSetView struct {

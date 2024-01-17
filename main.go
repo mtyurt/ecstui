@@ -54,7 +54,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			serviceDetail := servicetui.New(selectedService.Cluster(),
 				selectedService.Service(),
 				selectedService.ServiceArn(),
-				m.awsLayer.FetchServiceStatus)
+				m.awsLayer.FetchServiceStatus,
+				m.awsLayer.FetchTaskSetStatus,
+			)
 			serviceDetail.SetSize(m.width, m.height)
 			m.serviceDetail = &serviceDetail
 			cmds = append(cmds, m.serviceDetail.Init())
