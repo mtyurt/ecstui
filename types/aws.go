@@ -10,7 +10,7 @@ type ServiceScale struct {
 	Max int64
 }
 
-type LbConfig struct {
+type ConnectionConfig struct {
 	TaskSetID    string
 	LBName       string
 	TGName       string
@@ -24,13 +24,13 @@ type ServiceStatus struct {
 	Asg                ServiceScale
 	Images             []string
 	TaskSetImages      map[string][]string
-	TaskSetConnections map[string][]LbConfig
+	TaskSetConnections map[string][]ConnectionConfig
 	TaskSetTasks       map[string][]*ecs.Task
 }
 
 type TaskSetStatus struct {
 	TaskSetImages      map[string][]string
-	TaskSetConnections map[string][]LbConfig
+	TaskSetConnections map[string][]ConnectionConfig
 	TaskSetTasks       map[string][]*ecs.Task
 }
 

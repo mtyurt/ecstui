@@ -35,9 +35,11 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	bold      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
-	healthy   = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
-	unhealthy = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
+	bold        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
+	healthy     = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
+	unhealthy   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
+	tgNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")) // Amber
+
 )
 
 type sessionState int
@@ -50,7 +52,7 @@ const (
 
 type Model struct {
 	images        map[string][]string
-	connections   map[string][]types.LbConfig
+	connections   map[string][]types.ConnectionConfig
 	tasks         map[string][]*ecs.Task
 	taskSetMap    map[string]ecs.TaskSet
 	taskSets      []*ecs.TaskSet
@@ -137,7 +139,7 @@ func (m Model) View() string {
 	case initial:
 		return m.spinner.View()
 	case loaded:
-		return m.renderLbConfigs(m.connections)
+		return m.renderTaskSetsWithConnections()
 	case failed:
 		return m.err.Error()
 	default:
@@ -151,44 +153,44 @@ type taskSetView struct {
 	view string
 }
 
-func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
-	viewByLb := make(map[string][]taskSetView)
-	cfgByTaskSet := make(map[string]*types.LbConfig)
-	for taskSetID, lbs := range lbConfig {
+func (m *Model) renderTaskSetsWithConnections() string {
+	viewByConn := make(map[string][]taskSetView)
+	connByTaskSet := make(map[string]*types.ConnectionConfig)
+	for taskSetID, conns := range m.connections {
 		priorities := []string{}
-		for _, lb := range lbs {
-			if lb.LBName != "" && lb.Priority != "" {
-				priorities = append(priorities, lb.Priority)
+		for _, conn := range conns {
+			if conn.LBName != "" && conn.Priority != "" {
+				priorities = append(priorities, conn.Priority)
 			}
 		}
-		cfgByTaskSet[taskSetID] = &types.LbConfig{
-			LBName:    lbs[0].LBName,
+		connByTaskSet[taskSetID] = &types.ConnectionConfig{
+			LBName:    conns[0].LBName,
 			Priority:  strings.Join(priorities, ","),
-			TGName:    lbs[0].TGName,
-			TGWeigth:  lbs[0].TGWeigth,
+			TGName:    conns[0].TGName,
+			TGWeigth:  conns[0].TGWeigth,
 			TaskSetID: taskSetID,
-			TGHealth:  lbs[0].TGHealth,
+			TGHealth:  conns[0].TGHealth,
 		}
 	}
 
 	unattachedTaskSets := []taskSetView{}
-	for _, lb := range cfgByTaskSet {
+	for _, conn := range connByTaskSet {
 
-		if lb.LBName != "" {
-			view := m.renderTaskSetThroughLb(*lb)
+		if conn.LBName != "" {
+			view := m.renderAttachedTaskSet(*conn)
 
-			if _, ok := viewByLb[lb.LBName]; !ok {
-				viewByLb[lb.LBName] = []taskSetView{{tsID: lb.TaskSetID, view: view}}
+			if _, ok := viewByConn[conn.LBName]; !ok {
+				viewByConn[conn.LBName] = []taskSetView{{tsID: conn.TaskSetID, view: view}}
 			} else {
-				viewByLb[lb.LBName] = append(viewByLb[lb.LBName], taskSetView{tsID: lb.TaskSetID, view: view})
+				viewByConn[conn.LBName] = append(viewByConn[conn.LBName], taskSetView{tsID: conn.TaskSetID, view: view})
 			}
 		} else {
-			view := m.renderUnattachedTaskSet(*lb)
-			unattachedTaskSets = append(unattachedTaskSets, taskSetView{tsID: lb.TaskSetID, view: view})
+			view := m.renderUnattachedTaskSet(*conn)
+			unattachedTaskSets = append(unattachedTaskSets, taskSetView{tsID: conn.TaskSetID, view: view})
 		}
 	}
-	lbViews := make(map[string]string)
-	for lbName, lbTaskSets := range viewByLb {
+	connViews := make(map[string]string)
+	for lbName, lbTaskSets := range viewByConn {
 		bottom := smallSectionStyle.Copy().Width(len(lbTaskSets)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
 		slices.SortFunc(lbTaskSets, func(i, j taskSetView) int {
 			return strings.Compare(i.tsID, j.tsID)
@@ -200,17 +202,17 @@ func (m *Model) renderLbConfigs(lbConfig map[string][]types.LbConfig) string {
 		}
 
 		tgView := lipgloss.JoinVertical(lipgloss.Top, lipgloss.JoinHorizontal(lipgloss.Top, viewStrings...), bottom)
-		lbViews[lbName] = tgView
+		connViews[lbName] = tgView
 	}
-	lbs := make([]string, 0, len(viewByLb))
-	for _, lb := range lbViews {
-		lbs = append(lbs, lb)
+	conns := make([]string, 0, len(viewByConn))
+	for _, conn := range connViews {
+		conns = append(conns, conn)
 	}
 	for _, unattachedTaskSet := range unattachedTaskSets {
-		lbs = append(lbs, unattachedTaskSet.view)
+		conns = append(conns, unattachedTaskSet.view)
 	}
 
-	return lipgloss.NewStyle().Width(m.width).AlignHorizontal(lipgloss.Center).AlignVertical(lipgloss.Top).Render(lipgloss.JoinHorizontal(lipgloss.Right, lbs...))
+	return lipgloss.NewStyle().Width(m.width).AlignHorizontal(lipgloss.Center).AlignVertical(lipgloss.Top).Render(lipgloss.JoinHorizontal(lipgloss.Right, conns...))
 }
 
 func truncateTo(s string, max int) string {
@@ -220,8 +222,8 @@ func truncateTo(s string, max int) string {
 	return s
 }
 
-func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
-	ts := m.taskSetMap[lbConfig.TaskSetID]
+func (m Model) renderAttachedTaskSet(connConfig types.ConnectionConfig) string {
+	ts := m.taskSetMap[connConfig.TaskSetID]
 	attachmentTemplate := `▲
 |
 %d%%
@@ -229,12 +231,12 @@ func (m Model) renderTaskSetThroughLb(lbConfig types.LbConfig) string {
 %s
 priority: %s`
 
-	attachment := fmt.Sprintf(attachmentTemplate, lbConfig.TGWeigth, getTGNameAndHealth(lbConfig), lbConfig.Priority)
+	attachment := fmt.Sprintf(attachmentTemplate, connConfig.TGWeigth, getTGNameAndHealth(connConfig), connConfig.Priority)
 	return m.renderTaskSetWithAttachment(ts, attachment)
 }
 
-func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
-	ts := m.taskSetMap[lbConfig.TaskSetID]
+func (m Model) renderUnattachedTaskSet(connConfig types.ConnectionConfig) string {
+	ts := m.taskSetMap[connConfig.TaskSetID]
 	attachmentTemplate := `▲
 |
 |
@@ -244,26 +246,27 @@ func (m Model) renderUnattachedTaskSet(lbConfig types.LbConfig) string {
 
 `
 
-	attachment := fmt.Sprintf(attachmentTemplate, getTGNameAndHealth(lbConfig))
+	attachment := fmt.Sprintf(attachmentTemplate, getTGNameAndHealth(connConfig))
 
 	return m.renderTaskSetWithAttachment(ts, attachment)
 }
 
-func getTGNameAndHealth(lbConfig types.LbConfig) string {
-	tgName := truncateTo(lbConfig.TGName, taskSetWidth)
+func getTGNameAndHealth(connConfig types.ConnectionConfig) string {
+	tgName := truncateTo(connConfig.TGName, taskSetWidth)
+	tgName = tgNameStyle.Render(tgName)
 
 	healths := []string{}
-	azByState := make(map[string]string)
+	azByState := make(map[string][]string)
 	states := []string{}
 
-	for _, health := range lbConfig.TGHealth {
+	for _, health := range connConfig.TGHealth {
 		az := *health.Target.AvailabilityZone
 		state := *health.TargetHealth.State
 		if _, ok := azByState[state]; !ok {
-			azByState[state] = utils.GetLastItemAfterSplit(az, "-")
+			azByState[state] = []string{utils.GetLastItemAfterSplit(az, "-")}
 			states = append(states, state)
 		} else {
-			azByState[state] = azByState[state] + "," + utils.GetLastItemAfterSplit(az, "-")
+			azByState[state] = append(azByState[state], utils.GetLastItemAfterSplit(az, "-"))
 		}
 	}
 	slices.Sort(states)
@@ -272,7 +275,7 @@ func getTGNameAndHealth(lbConfig types.LbConfig) string {
 		if state == "healthy" {
 			style = healthy
 		}
-		healths = append(healths, style.Render(fmt.Sprintf("%s: %s", state, azByState[state])))
+		healths = append(healths, style.Render(fmt.Sprintf("%s: %s", state, strings.Join(azByState[state], ", "))))
 	}
 	return tgName + "\n" + strings.Join(healths, " ")
 

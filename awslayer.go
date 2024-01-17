@@ -149,13 +149,13 @@ func (a *AWSInteractionLayer) FetchServiceStatus(cluster, service string) (*type
 func (a *AWSInteractionLayer) FetchTaskSetStatus(cluster, service string, taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error) {
 	response := &types.TaskSetStatus{}
 	response.TaskSetImages = make(map[string][]string)
-	response.TaskSetConnections = make(map[string][]types.LbConfig)
+	response.TaskSetConnections = make(map[string][]types.ConnectionConfig)
 	response.TaskSetTasks = make(map[string][]*ecs.Task)
 	var err error
 	if len(taskSets) > 0 {
 		for _, ts := range taskSets {
 			if ts.LoadBalancers != nil && len(ts.LoadBalancers) > 0 {
-				lbConfigs := make([]types.LbConfig, 0)
+				lbConfigs := make([]types.ConnectionConfig, 0)
 				for _, lb := range ts.LoadBalancers {
 					lbConfig, err := a.findLoadBalancersForTargetGroup(*ts.Id, *lb.TargetGroupArn)
 					if err != nil {
@@ -209,14 +209,14 @@ func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID st
 
 	return taskResp.Tasks, nil
 }
-func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetGroupArn string) ([]types.LbConfig, error) {
+func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetGroupArn string) ([]types.ConnectionConfig, error) {
 	// Describe the load balancers
 	lbResp, err := a.elbv2.DescribeLoadBalancers(&elbv2.DescribeLoadBalancersInput{})
 	if err != nil {
 		return nil, err
 	}
 
-	var lbConfigs []types.LbConfig
+	var lbConfigs []types.ConnectionConfig
 	found := false
 	shortTgName := utils.GetLastItemAfterSplit(targetGroupArn, "targetgroup/")
 	tgHealthCache := make(map[string][]*elbv2.TargetHealthDescription)
@@ -252,7 +252,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 							if err != nil {
 								return nil, err
 							}
-							lbConfigs = append(lbConfigs, types.LbConfig{
+							lbConfigs = append(lbConfigs, types.ConnectionConfig{
 								LBName:    *lb.LoadBalancerName,
 								TGName:    shortTgName,
 								TGWeigth:  *action.ForwardConfig.TargetGroups[0].Weight,
@@ -269,7 +269,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 									if err != nil {
 										return nil, err
 									}
-									lbConfigs = append(lbConfigs, types.LbConfig{
+									lbConfigs = append(lbConfigs, types.ConnectionConfig{
 										LBName:    *lb.LoadBalancerName,
 										TGName:    shortTgName,
 										TGWeigth:  *tg.Weight,
@@ -292,7 +292,7 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(taskSetID, targetG
 		if err != nil {
 			return nil, err
 		}
-		lbConfigs = append(lbConfigs, types.LbConfig{
+		lbConfigs = append(lbConfigs, types.ConnectionConfig{
 			TGName:    shortTgName,
 			TaskSetID: taskSetID,
 			TGHealth:  tgHealth,
