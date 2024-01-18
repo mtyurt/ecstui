@@ -36,6 +36,7 @@ var (
 				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
+	subtle              = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 	bold                = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFBF00"))
 	healthy             = lipgloss.NewStyle().Foreground(lipgloss.Color("#80C904"))
 	unhealthy           = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFBF00"))
@@ -174,6 +175,7 @@ type taskSetView struct {
 func (m *Model) renderTaskSetsWithConnections() string {
 	viewByConn := make(map[string][]taskSetView)
 	connByTaskSet := make(map[string]*types.ConnectionConfig)
+	lbRulePriority := make(map[string]string)
 	for taskSetID, conns := range m.connections {
 		priorities := []string{}
 		for _, conn := range conns {
@@ -188,6 +190,13 @@ func (m *Model) renderTaskSetsWithConnections() string {
 			TGWeigth:  conns[0].TGWeigth,
 			TaskSetID: taskSetID,
 			TGHealth:  conns[0].TGHealth,
+		}
+		priorities = utils.UniqueStrings(priorities)
+		joinedPriorities := strings.Join(priorities, ",")
+		if _, ok := lbRulePriority[conns[0].LBName]; !ok {
+			lbRulePriority[conns[0].LBName] = joinedPriorities
+		} else if lbRulePriority[conns[0].LBName] != joinedPriorities {
+			lbRulePriority[conns[0].LBName] = joinedPriorities + "," + lbRulePriority[conns[0].LBName]
 		}
 	}
 
@@ -209,7 +218,11 @@ func (m *Model) renderTaskSetsWithConnections() string {
 	}
 	connViews := make(map[string]string)
 	for lbName, lbTaskSets := range viewByConn {
-		bottom := smallSectionStyle.Copy().Width(len(lbTaskSets)*taskSetWidth + 2).Height(1).Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName))
+		priority := subtle.Render("rules " + lbRulePriority[lbName])
+		bottom := smallSectionStyle.Copy().
+			Width(len(lbTaskSets)*taskSetWidth + 2).
+			Height(2).
+			Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(lbName) + "\n" + priority)
 		slices.SortFunc(lbTaskSets, func(i, j taskSetView) int {
 			return strings.Compare(i.tsID, j.tsID)
 		})
@@ -246,10 +259,9 @@ func (m Model) renderAttachedTaskSet(connConfig types.ConnectionConfig) string {
 |
 %d%%
 |
-%s
-priority: %s`
+%s`
 
-	attachment := fmt.Sprintf(attachmentTemplate, connConfig.TGWeigth, getTGNameAndHealth(connConfig), connConfig.Priority)
+	attachment := fmt.Sprintf(attachmentTemplate, connConfig.TGWeigth, getTGNameAndHealth(connConfig))
 	return m.renderTaskSetWithAttachment(ts, attachment)
 }
 
@@ -260,9 +272,7 @@ func (m Model) renderUnattachedTaskSet(connConfig types.ConnectionConfig) string
 |
 |
 %s
-(unattached)
-
-`
+(unattached)`
 
 	attachment := fmt.Sprintf(attachmentTemplate, getTGNameAndHealth(connConfig))
 
@@ -294,6 +304,7 @@ func getTGNameAndHealth(connConfig types.ConnectionConfig) string {
 			style = healthy
 		}
 		slices.Sort(azByState[state])
+		azByState[state] = utils.UniqueStrings(azByState[state])
 		healths = append(healths, style.Render(fmt.Sprintf("%s: %s", state, strings.Join(azByState[state], ", "))))
 	}
 	return tgName + "\n" + strings.Join(healths, " ")
