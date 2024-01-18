@@ -32,6 +32,8 @@ var (
 
 	filterCursor = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "#EE6FF8", Dark: "#EE6FF8"})
+
+	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
 )
 
 type Model struct {
@@ -52,7 +54,7 @@ func New(title string, width, height int, events []*ecs.ServiceEvent) Model {
 
 	m := Model{
 		eventsView:  view,
-		title:       title,
+		title:       title + "\t" + helpStyle.Render("Press / to filter"),
 		events:      events,
 		filterInput: filterInput,
 	}
@@ -189,6 +191,7 @@ func max(a, b int) int {
 	return b
 }
 func (m Model) View() string {
-	return lipgloss.NewStyle().Margin(5, 1).Render(
-		fmt.Sprintf("%s\n%s\n%s", m.headerView(), m.eventsView.View(), m.footerView()))
+	help := helpStyle.Width(m.eventsView.Width).Render("Press / to filter")
+	return lipgloss.NewStyle().Margin(5, 1).Height(m.eventsView.Height + 3).Render(
+		fmt.Sprintf("%s\n%s\n%s\n\n%s", m.headerView(), m.eventsView.View(), m.footerView(), help))
 }

@@ -138,8 +138,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg.err
 		m.state = failed
-	default:
-		logger.Printf("taskset update %v\n", msg)
 	}
 
 	switch m.state {

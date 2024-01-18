@@ -148,7 +148,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
-		logger.Println("servicedetail loaded")
+		logger.Printf("servicedetail loaded %v\n", msg)
 		m.ecsStatus = msg
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
