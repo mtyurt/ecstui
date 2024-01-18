@@ -48,7 +48,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		k := msg.String()
 		if k == "ctrl+c" {
 			return m, tea.Quit
-		} else if msg.Type == tea.KeyEnter && m.state == listView {
+		} else if msg.Type == tea.KeyEnter && m.state == listView && !m.list.IsFiltering() {
 			selectedService := m.list.GetSelectedServiceArn()
 			m.state = detailView
 			serviceDetail := servicetui.New(selectedService.Cluster(),

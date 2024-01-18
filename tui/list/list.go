@@ -44,7 +44,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg.(type) {
 	case tea.KeyMsg:
-		if m.list.FilterState() == list.Filtering {
+		if m.IsFiltering() {
 			break
 		}
 	}
@@ -67,6 +67,10 @@ func (m *Model) SetItems(services []ListItem) {
 		items[i] = ListItem(service)
 	}
 	m.list.SetItems(items)
+}
+
+func (m *Model) IsFiltering() bool {
+	return m.list.FilterState() == list.Filtering
 }
 
 func (m *Model) GetSelectedServiceArn() ListItem {
