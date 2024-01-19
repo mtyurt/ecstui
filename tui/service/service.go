@@ -135,6 +135,10 @@ func (m *Model) SetSize(width, height int) {
 	if m.taskSetView != nil {
 		m.taskSetView.SetSize(width-19, 0)
 	}
+
+	if m.deploymentsView != nil {
+		m.deploymentsView.SetSize(width-20, 0)
+	}
 }
 
 func doTick() tea.Cmd {
@@ -158,6 +162,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
 		m.ecsStatus = msg
+		logger.Println("service status", m.ecsStatus)
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
 		if m.state == loaded {
@@ -258,7 +263,7 @@ func (m *Model) initializeSections() {
 
 	if serviceStatus.Deployments != nil && len(serviceStatus.Deployments) > 0 {
 		if m.deploymentsView == nil {
-			m.deploymentsView = deployment.New(m.fetchDeploymentStatus(), serviceStatus.Deployments, m.width-19, m.height)
+			m.deploymentsView = deployment.New(m.fetchDeploymentStatus(), serviceStatus.Deployments, m.width-20, m.height)
 		}
 	}
 }

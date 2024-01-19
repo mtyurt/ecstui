@@ -23,9 +23,10 @@ var (
 
 	taskSetWidth      = 35
 	smallSectionStyle = lipgloss.NewStyle().
-				Width(28).
+				Width(32).
 				Height(6).
 				Margin(0, 1, 0, 0).
+				PaddingLeft(1).
 				Align(lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})

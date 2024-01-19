@@ -21,19 +21,13 @@ import (
 var (
 	styles = list.DefaultStyles()
 
-	taskSetWidth      = 35
+	sectionWidth      = 40
 	smallSectionStyle = lipgloss.NewStyle().
-				Width(28).
+				Width(40).
 				Height(6).
 				Margin(0, 1, 0, 0).
+				PaddingLeft(4).
 				Align(lipgloss.Center).
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
-	largeSectionStyle = lipgloss.NewStyle().
-				Width(150).
-				Height(10).
-				Margin(0, 1, 0, 0).
-				Align(lipgloss.Left, lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
 				BorderForeground(lipgloss.AdaptiveColor{Light: "#F793FF", Dark: "#AD58B4"})
 	subtle              = lipgloss.NewStyle().Foreground(lipgloss.Color("#9B9B9B"))
@@ -96,7 +90,7 @@ func New(statusFetcher DeploymentsFetcher, deployments []*ecs.Deployment, width,
 }
 
 func (m *Model) SetSize(width, height int) {
-	if width%2 == 1 {
+	if width%2 == 0 {
 		width = width - 1
 	}
 
@@ -170,7 +164,7 @@ func (m Model) View() string {
 func (m *Model) renderView() string {
 	deployments := m.renderDeployments()
 	connections := m.renderConnections()
-	return lipgloss.JoinVertical(lipgloss.Center, deployments, connections)
+	return lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(lipgloss.JoinVertical(lipgloss.Center, deployments, connections))
 }
 
 func (m Model) renderDeployments() string {
@@ -185,7 +179,7 @@ func (m Model) renderDeployments() string {
 		views = append(views, m.renderDeploymentDetails(*d))
 	}
 
-	return lipgloss.NewStyle().Width(m.width - 10).Render(lipgloss.JoinHorizontal(lipgloss.Center, views...))
+	return lipgloss.NewStyle().Width(m.width - 10).Align(lipgloss.Center).Render(lipgloss.JoinHorizontal(lipgloss.Center, views...))
 }
 
 func (m Model) renderConnections() string {
@@ -194,10 +188,9 @@ func (m Model) renderConnections() string {
 		return strings.Compare(i.LBName, j.LBName)
 	})
 
-	widthPerConn := (m.width - 10) / len(connections)
 	views := []string{}
 	for _, c := range connections {
-		views = append(views, m.renderConnectionDetails(c, widthPerConn))
+		views = append(views, m.renderConnectionDetails(c))
 	}
 
 	return smallSectionStyle.Copy().Width(m.width - 10).Render(lipgloss.JoinHorizontal(lipgloss.Center, views...))
@@ -220,17 +213,19 @@ func simpleAttachmentView() string {
 `
 }
 
-func (m Model) renderConnectionDetails(conn types.ConnectionConfig, width int) string {
+func (m Model) renderConnectionDetails(conn types.ConnectionConfig) string {
 	lbName := smallSectionStyle.Copy().
-		Width(width).
+		Width(sectionWidth + 20).
 		Height(1).
 		Render(styles.Title.AlignHorizontal(lipgloss.Center).Render(conn.LBName))
 
-	return lipgloss.JoinVertical(lipgloss.Center, getTGNameAndHealth(conn), lbName)
+	tgInfo := getTGNameAndHealth(conn, sectionWidth-3)
+	tgInfo = lipgloss.NewStyle().Height(1).AlignHorizontal(lipgloss.Center).Width(sectionWidth).Render(tgInfo)
+	return lipgloss.JoinVertical(lipgloss.Center, tgInfo, lbName)
 }
 
-func getTGNameAndHealth(connConfig types.ConnectionConfig) string {
-	tgName := truncateTo(connConfig.TGName, taskSetWidth)
+func getTGNameAndHealth(connConfig types.ConnectionConfig, width int) string {
+	tgName := truncateTo(connConfig.TGName, width)
 	tgName = tgNameStyle.Render(tgName)
 
 	healths := []string{}
@@ -280,9 +275,9 @@ func (m Model) renderDeploymentDetails(d ecs.Deployment) string {
 		table.WithStyles(tableStyles),
 	)
 
-	title := styles.Title.Copy().Padding(0).MarginBottom(0).Render(truncateTo(*d.Id, taskSetWidth-2))
+	title := styles.Title.Copy().Padding(0).MarginBottom(0).Render(truncateTo(*d.Id, sectionWidth-2))
 	if m.showRefreshSpinner {
-		space := taskSetWidth - lipgloss.Width(title) - lipgloss.Width(m.refreshSpinner.View())
+		space := sectionWidth - lipgloss.Width(title) - lipgloss.Width(m.refreshSpinner.View())
 		title = title + strings.Repeat(" ", space) + m.refreshSpinner.View()
 	}
 	title = title + "\n"
@@ -295,12 +290,12 @@ func (m Model) renderDeploymentDetails(d ecs.Deployment) string {
 		bold.Render("tasks:")+"\n"+taskTable.View(),
 	)
 
-	content = smallSectionStyle.Copy().Height(10).Width(taskSetWidth).AlignHorizontal(lipgloss.Left).Render(content)
-	attachment := "\n\n\n\n\n"
+	content = smallSectionStyle.Copy().Height(10).Width(sectionWidth).AlignHorizontal(lipgloss.Left).Render(content)
+	attachment := "\n\n\n\n"
 	if *d.Status == "PRIMARY" {
 		attachment = simpleAttachmentView()
 
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Center, content, attachment)
+	return lipgloss.JoinVertical(lipgloss.Center, content, attachment)
 }

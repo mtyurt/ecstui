@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -93,6 +94,7 @@ func (a *AWSInteractionLayer) GetImagesInTaskDefinition(taskDefinitionArn string
 	var images []string
 	for _, container := range taskDefinition.TaskDefinition.ContainerDefinitions {
 		image := utils.GetLastItemAfterSplit(*container.Image, "amazonaws.com/")
+		image = strings.Replace(image, "public.ecr.aws/", "", 1)
 		if image != "" {
 			images = append(images, image)
 		}
@@ -291,9 +293,6 @@ func (a *AWSInteractionLayer) findLoadBalancersForTargetGroup(targetGroupArn str
 			}
 
 			for _, rule := range ruleResp.Rules {
-				if *rule.Priority == "default" {
-					continue
-				}
 				for _, action := range rule.Actions {
 					if *action.Type == "forward" {
 						if action.TargetGroupArn != nil && *action.TargetGroupArn == targetGroupArn {
