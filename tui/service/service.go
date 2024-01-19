@@ -351,7 +351,7 @@ func (m Model) sectionsView() string {
 func (m Model) View() string {
 	serviceName := foreground.Copy().
 		Bold(true).
-		Margin(0, 2, 0, 2).
+		Margin(1, 2, 0, 2).
 		Background(lipgloss.Color("#7D56F4")).
 		AlignHorizontal(lipgloss.Center).
 		Width(m.width).

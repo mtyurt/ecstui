@@ -12,5 +12,6 @@ func JoinImageNames(images []string) string {
 	for _, image := range images {
 		response += "- " + image + "\n"
 	}
-	return response
+
+	return strings.TrimSuffix(response, "\n")
 }
