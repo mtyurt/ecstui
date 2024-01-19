@@ -171,17 +171,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		logger.Printf("servicedetail update key: %s\n", msg)
 		if m.state == loaded {
 			switch k := msg.String(); k {
-			case "ctrl+e":
+			case "ctrl+e", "ctrl+shift+e":
 				eventsViewport := events.New(m.service, 200, 50, m.ecsStatus.Ecs.Events)
 				m.eventsViewport = &eventsViewport
 				m.state = eventsOnly
 				m.Focused = false
-			case "ctrl+t": // toggle auto refresh
+			case "ctrl+t", "ctrl+shift+t": // toggle auto refresh
 				m.autoRefresh = !m.autoRefresh
 				if m.autoRefresh {
 					cmds = append(cmds, doTick())
 				}
-			case "ctrl+r": // refresh
+			case "ctrl+r", "ctrl+shift+r": // refresh
 				m.showFooterSpinner = true
 				cmds = append(cmds, m.fetchServiceStatus, m.footerSpinner.Tick)
 			}
@@ -325,7 +325,7 @@ func (m Model) footerView() string {
 		lastUpdate = m.footerSpinner.View() + " " + lastUpdate
 	}
 
-	return (lipgloss.JoinVertical(lipgloss.Right, style.Render(strings.Join(fields, " • ")), style.Render(lastUpdate)))
+	return (lipgloss.JoinVertical(lipgloss.Right, style.Render(strings.Join(fields, " • ")+helpStyleVal.Render(" | ctrl+shift+key works!")), style.Render(lastUpdate)))
 }
 func (m Model) sectionsView() string {
 	firstRow := lipgloss.JoinHorizontal(lipgloss.Center, m.taskView(), m.deploymentView())
