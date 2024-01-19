@@ -121,7 +121,7 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	if m.eventsViewport != nil {
-		m.eventsViewport.SetSize(width, 0)
+		m.eventsViewport.SetSize(width-10, 0)
 	}
 	if m.taskSetView != nil {
 		m.taskSetView.SetSize(width-19, 0)

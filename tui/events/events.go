@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mtyurt/ecstui/logger"
 	"github.com/muesli/reflow/wordwrap"
 )
 
@@ -45,11 +46,11 @@ type Model struct {
 }
 
 func New(title string, width, height int, events []*ecs.ServiceEvent) Model {
-	view := viewport.New(width, height)
+	view := viewport.New(width-10, height)
 	view.SetYOffset(1)
 	filterInput := textinput.New()
 	filterInput.Prompt = "Filter: "
-	filterInput.Width = width - 10 - len(filterInput.Prompt)
+	filterInput.Width = width - 20 - len(filterInput.Prompt)
 	filterInput.Focus()
 
 	m := Model{
@@ -78,7 +79,7 @@ func (m *Model) updateContent() {
 			continue
 		}
 
-		msg := wrapEventMessage(*event.Message, width-25, 24)
+		msg := wrapEventMessage(*event.Message, width-30, 24)
 		timestamp := timestampStyle.Render(event.CreatedAt.Format("2006-01-02 15:04:05.000"))
 		if m.filterEnabled {
 			msg = highlightOccurencesCaseInsensitive(msg, m.filterInput.Value())
@@ -118,8 +119,9 @@ func highlightOccurencesCaseInsensitive(a, b string) string {
 }
 
 func (m Model) SetSize(width, height int) {
-	m.eventsView.Width = width
-	m.eventsView.Height = height
+	// m.eventsView.Width = width
+	// m.eventsView.Height = height
+	// m.filterInput.Width = width - 10 - len(m.filterInput.Prompt)
 }
 func (m Model) Focused() bool {
 	return !m.filterEnabled
@@ -156,6 +158,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	}
 
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		logger.Printf("events set window size: %d, %d\n", msg.Width, msg.Height)
+		m.SetSize(msg.Width, msg.Height)
+		m.eventsView.Width = msg.Width - 10
+		// m.eventsView.Height = msg.Height
+		m.filterInput.Width = msg.Width - 20 - len(m.filterInput.Prompt)
+		m.updateContent()
+	}
+
 	if m.filterEnabled && !newFilter {
 		newFilterInputModel, inputCmd := m.filterInput.Update(msg)
 		m.filterInput = newFilterInputModel
@@ -169,13 +180,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) headerView() string {
+	width := m.eventsView.Width
 	if m.filterEnabled {
 		view := titleStyle.Render(m.filterInput.View())
-		line := strings.Repeat("─", max(0, m.eventsView.Width-lipgloss.Width(view)))
+		line := strings.Repeat("─", max(0, width-lipgloss.Width(view)-10))
 		return lipgloss.JoinHorizontal(lipgloss.Center, view, line)
 	}
 	title := titleStyle.Render(m.title)
-	line := strings.Repeat("─", max(0, m.eventsView.Width-lipgloss.Width(title)))
+	line := strings.Repeat("─", max(0, width-lipgloss.Width(title)))
 	return lipgloss.JoinHorizontal(lipgloss.Center, title, line)
 }
 
@@ -191,7 +203,6 @@ func max(a, b int) int {
 	return b
 }
 func (m Model) View() string {
-	help := helpStyle.Width(m.eventsView.Width).Render("Press / to filter")
-	return lipgloss.NewStyle().Margin(5, 1).Height(m.eventsView.Height + 3).Render(
-		fmt.Sprintf("%s\n%s\n%s\n\n%s", m.headerView(), m.eventsView.View(), m.footerView(), help))
+	return lipgloss.NewStyle().Margin(5, 1).Width(m.eventsView.Width + 2).Height(m.eventsView.Height + 3).Render(
+		fmt.Sprintf("%s\n%s\n%s\n", m.headerView(), m.eventsView.View(), m.footerView()))
 }
