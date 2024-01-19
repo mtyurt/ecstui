@@ -14,6 +14,7 @@ import (
 
 	"github.com/mtyurt/ecstui/logger"
 	"github.com/mtyurt/ecstui/spinnertui"
+	"github.com/mtyurt/ecstui/tui/deployment"
 	"github.com/mtyurt/ecstui/tui/events"
 	"github.com/mtyurt/ecstui/tui/taskset"
 	"github.com/mtyurt/ecstui/types"
@@ -57,22 +58,24 @@ var (
 )
 
 type Model struct {
-	state                sessionState
-	cluster, serviceArn  string
-	service              string
-	spinner              spinnertui.Model
-	ecsStatus            *types.ServiceStatus
-	err                  error
-	width, height        int
-	eventsViewport       *events.Model
-	taskSetView          *taskset.Model
-	Focused              bool
-	lastUpdateTime       time.Time
-	ecsStatusFetcher     func(string, string) (*types.ServiceStatus, error)
-	taskSetStatusFetcher types.TaskSetStatusFetcher
-	autoRefresh          bool
-	footerSpinner        spinner.Model
-	showFooterSpinner    bool
+	state                   sessionState
+	cluster, serviceArn     string
+	service                 string
+	spinner                 spinnertui.Model
+	ecsStatus               *types.ServiceStatus
+	err                     error
+	width, height           int
+	eventsViewport          *events.Model
+	taskSetView             *taskset.Model
+	deploymentsView         *deployment.Model
+	Focused                 bool
+	lastUpdateTime          time.Time
+	ecsStatusFetcher        func(string, string) (*types.ServiceStatus, error)
+	taskSetStatusFetcher    types.TaskSetStatusFetcher
+	deploymentStatusFetcher types.DeploymentStatusFetcher
+	autoRefresh             bool
+	footerSpinner           spinner.Model
+	showFooterSpinner       bool
 }
 
 type errMsg struct{ err error }
@@ -83,16 +86,17 @@ type ServiceMsg *types.ServiceStatus
 
 type TickMsg time.Time
 
-func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error), taskSetStatusFetcher types.TaskSetStatusFetcher) Model {
+func New(cluster, service, serviceArn string, ecsStatusFetcher func(string, string) (*types.ServiceStatus, error), taskSetStatusFetcher types.TaskSetStatusFetcher, deploymentStatusFetcher types.DeploymentStatusFetcher) Model {
 	return Model{cluster: cluster,
-		serviceArn:           serviceArn,
-		service:              service,
-		spinner:              spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
-		Focused:              true,
-		ecsStatusFetcher:     ecsStatusFetcher,
-		taskSetStatusFetcher: taskSetStatusFetcher,
-		footerSpinner:        spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(lastUpdateSpinnerStyle)),
-		showFooterSpinner:    false,
+		serviceArn:              serviceArn,
+		service:                 service,
+		spinner:                 spinnertui.New(fmt.Sprintf("Fetching %s status...", service)),
+		Focused:                 true,
+		ecsStatusFetcher:        ecsStatusFetcher,
+		taskSetStatusFetcher:    taskSetStatusFetcher,
+		deploymentStatusFetcher: deploymentStatusFetcher,
+		footerSpinner:           spinner.New(spinner.WithSpinner(spinner.Hamburger), spinner.WithStyle(lastUpdateSpinnerStyle)),
+		showFooterSpinner:       false,
 	}
 }
 
@@ -110,6 +114,11 @@ func (m Model) fetchServiceStatus() tea.Msg {
 func (m Model) fetchTaskSetStatus() taskset.StatusFetcher {
 	return func(taskSets []*ecs.TaskSet) (*types.TaskSetStatus, error) {
 		return m.taskSetStatusFetcher(m.cluster, m.service, taskSets)
+	}
+}
+func (m Model) fetchDeploymentStatus() deployment.DeploymentsFetcher {
+	return func(deployments []*ecs.Deployment) (*types.DeploymentStatus, error) {
+		return m.deploymentStatusFetcher(m.cluster, m.service, deployments, m.ecsStatus.Ecs.LoadBalancers)
 	}
 }
 
@@ -148,17 +157,24 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	case ServiceMsg:
-		logger.Printf("servicedetail loaded %v\n", msg)
 		m.ecsStatus = msg
 		m.lastUpdateTime = time.Now()
 		m.initializeSections()
-		if m.state == loaded && m.taskSetView != nil { // if it's already loaded, we don't need to recreate the tasksetview
-			logger.Println("servicedetail update tasksetview")
-			taskSetView, cmd := m.taskSetView.Refresh()
-			m.taskSetView = &taskSetView
-			cmds = append(cmds, cmd)
+		if m.state == loaded {
+			if m.taskSetView != nil { // if it's already loaded, we don't need to recreate the tasksetview
+				taskSetView, cmd := m.taskSetView.Refresh()
+				m.taskSetView = &taskSetView
+				cmds = append(cmds, cmd)
+			} else if m.deploymentsView != nil { // if it's already loaded, we don't need to recreate the deploymentsview
+				deploymentsView, cmd := m.deploymentsView.Refresh()
+				m.deploymentsView = &deploymentsView
+				cmds = append(cmds, cmd)
+			}
 		} else if m.taskSetView != nil { // fresh taskset
 			cmd = m.taskSetView.Init()
+			cmds = append(cmds, cmd)
+		} else if m.deploymentsView != nil { // fresh deployment
+			cmd = m.deploymentsView.Init()
 			cmds = append(cmds, cmd)
 		}
 		m.state = loaded
@@ -212,9 +228,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.eventsViewport = &eventsViewport
 		cmds = append(cmds, cmd)
 	}
+
 	if m.taskSetView != nil {
 		taskSetView, cmd := m.taskSetView.Update(msg)
 		m.taskSetView = &taskSetView
+		cmds = append(cmds, cmd)
+	}
+	if m.deploymentsView != nil {
+		deploymentsView, cmd := m.deploymentsView.Update(msg)
+		m.deploymentsView = &deploymentsView
 		cmds = append(cmds, cmd)
 	}
 	if m.showFooterSpinner {
@@ -231,6 +253,12 @@ func (m *Model) initializeSections() {
 		status := m.ecsStatus
 		if m.taskSetView == nil {
 			m.taskSetView = taskset.New(m.fetchTaskSetStatus(), status.Ecs.TaskSets, m.width-19, m.height)
+		}
+	}
+
+	if serviceStatus.Deployments != nil && len(serviceStatus.Deployments) > 0 {
+		if m.deploymentsView == nil {
+			m.deploymentsView = deployment.New(m.fetchDeploymentStatus(), serviceStatus.Deployments, m.width-19, m.height)
 		}
 	}
 }
@@ -268,6 +296,8 @@ func (m Model) tasksetsView() string {
 	tsSection := "not configured"
 	if m.taskSetView != nil {
 		tsSection = m.taskSetView.View()
+	} else if m.deploymentsView != nil {
+		tsSection = m.deploymentsView.View()
 	}
 
 	return m.renderLargeSection("tasksets", tsSection)

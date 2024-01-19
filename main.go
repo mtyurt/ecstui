@@ -56,6 +56,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selectedService.ServiceArn(),
 				m.awsLayer.FetchServiceStatus,
 				m.awsLayer.FetchTaskSetStatus,
+				m.awsLayer.FetchDeploymentsStatus,
 			)
 			serviceDetail.SetSize(m.width, m.height)
 			m.serviceDetail = &serviceDetail
