@@ -209,7 +209,7 @@ func simpleAttachmentView() string {
 |
 |
 |
-
+|
 `
 }
 
@@ -291,7 +291,7 @@ func (m Model) renderDeploymentDetails(d ecs.Deployment) string {
 	)
 
 	content = smallSectionStyle.Copy().Height(10).Width(sectionWidth).AlignHorizontal(lipgloss.Left).Render(content)
-	attachment := "\n\n\n\n"
+	attachment := "\n\n\n"
 	if *d.Status == "PRIMARY" {
 		attachment = simpleAttachmentView()
 

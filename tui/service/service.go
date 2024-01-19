@@ -34,8 +34,8 @@ var (
 	styles = list.DefaultStyles()
 
 	smallSectionStyle = lipgloss.NewStyle().
-				Width(28).
-				Height(6).
+				Width(35).
+				Height(8).
 				Margin(0, 1, 0, 0).
 				Align(lipgloss.Center).
 				BorderStyle(lipgloss.NormalBorder()).
@@ -270,7 +270,7 @@ func (m *Model) initializeSections() {
 
 func (m Model) taskView() string {
 	serviceStatus := *m.ecsStatus.Ecs
-	taskString := foreground.Render(fmt.Sprintf("%d", *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
+	taskString := foreground.Render(fmt.Sprintf("%s %d", subtle.Render("running"), *serviceStatus.RunningCount)) + "\n" + subtle.Render(fmt.Sprintf("desired: %d", *serviceStatus.DesiredCount))
 	taskString = taskString + "\n" + subtle.Render(fmt.Sprintf("min: %d, max: %d", m.ecsStatus.Asg.Min, m.ecsStatus.Asg.Max))
 	return m.renderSmallSection("task", taskString)
 }
@@ -281,7 +281,21 @@ func (m Model) deploymentView() string {
 	if len(serviceStatus.CapacityProviderStrategy) > 0 {
 		deploymentString = *serviceStatus.CapacityProviderStrategy[0].CapacityProvider + "\n"
 	}
-	deploymentString = deploymentString + fmt.Sprintf("controller: %s\nstatus: %s", *serviceStatus.DeploymentController.Type, *serviceStatus.Status)
+	deploymentString = deploymentString + fmt.Sprintf("%s: %s\n%s: %s",
+		subtle.Render("controller"),
+		*serviceStatus.DeploymentController.Type,
+		subtle.Render("status"),
+		*serviceStatus.Status,
+	)
+	if m.ecsStatus.Ecs.Deployments != nil && len(m.ecsStatus.Ecs.Deployments) > 0 {
+		deploymentString = deploymentString + "\n" + fmt.Sprintf("%s: %d%%\n%s: %d%%",
+			subtle.Render("maximum-percent"),
+			*serviceStatus.DeploymentConfiguration.MaximumPercent,
+			subtle.Render("minimum-healthy-percent"),
+			*serviceStatus.DeploymentConfiguration.MinimumHealthyPercent,
+		)
+
+	}
 	return m.renderSmallSection("deployment", deploymentString)
 }
 
