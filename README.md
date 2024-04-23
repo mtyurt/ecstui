@@ -19,5 +19,17 @@ Opinionated ECS TUI using Bubbletea framework
 ## How to run
 
 ```
-go run main.go
+go mod tidy
+go run .
 ```
+
+## Examples
+
+Service overview screen:
+
+![service overview](./screenshots/service-overview.png)
+
+
+Events search & highlights:
+
+![events](./screenshots/events.png)
