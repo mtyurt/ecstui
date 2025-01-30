@@ -33,23 +33,56 @@ func NewAWSInteractionLayer() *AWSInteractionLayer {
 }
 
 func (a *AWSInteractionLayer) ListClusters() ([]*string, error) {
-	result, err := a.ecs.ListClusters(&ecs.ListClustersInput{})
-	if err != nil {
-		return nil, err
+	clusterArns := []*string{}
+	var nextToken *string
+	keepGoing := true
+
+	for count := 0; keepGoing; count++ {
+		result, err := a.ecs.ListClusters(&ecs.ListClustersInput{
+			NextToken:  nextToken,
+			MaxResults: aws.Int64(100),
+		})
+		if err != nil {
+			return nil, err
+		}
+		clusterArns = append(clusterArns, result.ClusterArns...)
+		keepGoing = result.NextToken != nil
+		nextToken = result.NextToken
+		if count > 10 {
+			logger.Printf("cluster fetch: breaking after %d iterations\n", count)
+			break
+		}
 	}
 
-	return result.ClusterArns, nil
+	return clusterArns, nil
 }
 
 func (a *AWSInteractionLayer) ListServices(cluster string) ([]*string, error) {
-	result, err := a.ecs.ListServices(&ecs.ListServicesInput{
-		Cluster: aws.String(cluster),
-	})
-	if err != nil {
-		return nil, err
+	serviceArns := []*string{}
+	var nextToken *string
+	keepGoing := true
+
+	for count := 0; keepGoing; count++ {
+
+		result, err := a.ecs.ListServices(&ecs.ListServicesInput{
+			Cluster:    aws.String(cluster),
+			NextToken:  nextToken,
+			MaxResults: aws.Int64(100),
+		})
+		if err != nil {
+			return nil, err
+		}
+		serviceArns = append(serviceArns, result.ServiceArns...)
+		keepGoing = result.NextToken != nil
+		nextToken = result.NextToken
+		logger.Printf("service fetch: count=%d, nextToken=%v\n", count, nextToken != nil)
+		if count > 10 {
+			logger.Printf("service fetch: breaking after %d iterations\n", count)
+			break
+		}
 	}
 
-	return result.ServiceArns, nil
+	return serviceArns, nil
 }
 
 type ECSService struct {
@@ -229,8 +262,9 @@ func (a *AWSInteractionLayer) FetchTaskSetStatus(cluster, service string, taskSe
 func (a *AWSInteractionLayer) findTasksForTaskSet(cluster, service, taskSetID string) ([]*ecs.Task, error) {
 	logger.Println("finding tasks for task set", cluster, service, taskSetID)
 	listResp, err := a.ecs.ListTasks(&ecs.ListTasksInput{
-		Cluster:   aws.String(cluster),
-		StartedBy: aws.String(taskSetID),
+		Cluster:    aws.String(cluster),
+		StartedBy:  aws.String(taskSetID),
+		MaxResults: aws.Int64(100),
 	})
 	if err != nil {
 		return nil, err
